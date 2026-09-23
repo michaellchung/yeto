@@ -293,15 +293,80 @@ def test_launch_head_mounts_aws_credentials_when_present(
     assert head_task.file_mounts["~/.aws"] == str(fake_home / ".aws")
 
 
-def test_launch_head_warns_when_aws_credentials_missing(
+def test_launch_head_fails_before_submit_when_aws_credentials_missing(
     fake_sky, monkeypatch, tmp_path, capsys
 ):
+    # The fleet (and the head itself) live on AWS: no ~/.aws means the head
+    # could never launch or tear down islands, so nothing is submitted.
     monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))
+    for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.delenv(var, raising=False)
 
-    assert cli.main(["launch", *LAUNCH_ARGS, "--cluster-prefix", "h3"]) == 0
+    assert cli.main(["launch", *LAUNCH_ARGS, "--cluster-prefix", "h3"]) == 1
+    assert not fake_sky.get("launches")
+    assert "aws credentials not found at ~/.aws" in capsys.readouterr().err
+
+
+def test_launch_head_mounts_only_the_clouds_the_fleet_uses(fake_sky, monkeypatch, tmp_path):
+    fake_home = tmp_path / "home"
+    for d in (".aws", ".verda", ".runpod", ".nebius"):
+        (fake_home / d).mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+
+    rc = cli.main([
+        "launch", "--gpu", "aws:8xa100@us-east-2,verda:8xh100@FIN-03", "--model", "gemma4",
+        "--model-revision", "a" * 40, "--data", "org/ds", "--data-revision", "b" * 40,
+        "--cluster-prefix", "h4",
+    ])
+    assert rc == 0
     (_, head_task), = fake_sky["launches"]
-    assert "~/.aws" not in head_task.file_mounts
-    assert "~/.aws not found" in capsys.readouterr().err
+    assert head_task.file_mounts["~/.aws"] == str(fake_home / ".aws")
+    assert head_task.file_mounts["~/.verda"] == str(fake_home / ".verda")
+    assert "~/.runpod" not in head_task.file_mounts and "~/.nebius" not in head_task.file_mounts
+
+
+def test_launch_head_fails_before_submit_when_nebius_credentials_missing(
+    fake_sky, monkeypatch, tmp_path, capsys
+):
+    fake_home = tmp_path / "home"
+    (fake_home / ".aws").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(fake_home))
+    for var in ("NEBIUS_IAM_TOKEN", "NEBIUS_TENANT_ID"):
+        monkeypatch.delenv(var, raising=False)
+    cfg = tmp_path / "sky.yaml"
+    cfg.write_text("nebius:\n  region_configs:\n    eu-north1:\n      project_id: project-1\n")
+    monkeypatch.setenv("SKYPILOT_CONFIG", str(cfg))
+
+    rc = cli.main([
+        "launch", "--gpu", "nebius:8xh100@eu-north1", "--model", "gemma4",
+        "--model-revision", "a" * 40, "--data", "org/ds", "--data-revision", "b" * 40,
+        "--cluster-prefix", "h5",
+    ])
+    assert rc == 1
+    assert not fake_sky.get("launches")
+    assert "nebius credentials not found at ~/.nebius" in capsys.readouterr().err
+
+
+def test_learner_islands_never_receive_cloud_credentials(fake_sky, monkeypatch, tmp_path):
+    from yeto import launcher
+    from yeto.gpu_spec import parse_gpu_spec
+
+    fake_home = tmp_path / "home"
+    (fake_home / ".aws").mkdir(parents=True)
+    (fake_home / ".modal.toml").write_text("[default]\n")
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIA")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "s3cr3t")
+    monkeypatch.setenv("MODAL_TOKEN_ID", "ak-1")
+    monkeypatch.setenv("MODAL_TOKEN_SECRET", "as-1")
+    args = cli.parse_args(LAUNCH_ARGS + ["--gpu", "aws:8xa100@us-east-2,modal:8xh100", "--cluster-prefix", "h6"])
+    (aws_spec, modal_spec) = parse_gpu_spec(args.gpu)
+    task = launcher.make_learner_task(args, aws_spec, 0, 2, "1.2.3.4:5000")
+    cred_paths = [p.lstrip("~/") for ps in launcher.CLOUD_CREDENTIAL_PATHS.values() for p in ps]
+    assert not set(task.envs) & launcher.CLOUD_CREDENTIAL_ENV_NAMES
+    assert not any(any(cp in m for cp in cred_paths) for m in (task.file_mounts or {}))
+    cfg = launcher.build_modal_island_config(args, modal_spec, 1, task, "1.2.3.4:5000")
+    assert not set(cfg.envs) & launcher.CLOUD_CREDENTIAL_ENV_NAMES
 
 
 # ---------------------------------------------------------------------------
