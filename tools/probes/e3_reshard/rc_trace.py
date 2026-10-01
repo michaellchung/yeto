@@ -94,7 +94,7 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                   name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
                   save_wgrads: bool = True, forward_only: bool = False, loss_level: bool = False,
                   logit_grad_mb: tuple = (), fo_filter: str = FO_FILTER,
-                  module_hooks: bool = True) -> dict[str, Any]:
+                  module_hooks: bool = True, logit_grad_samples: tuple = ()) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
 
@@ -104,7 +104,8 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                 "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale),
                 "profile": bool(profile_kernels), "prof": None, "kernels": None, "save_wgrads": bool(save_wgrads), "names": [],
                 "fo": -1, "module_hooks": bool(module_hooks), "forward_only": bool(forward_only), "fo_filter": re.compile(fo_filter), "small": {},
-                "logit_grad_mb": set(int(i) for i in logit_grad_mb), "big": {}})
+                "logit_grad_mb": set(int(i) for i in logit_grad_mb),
+                "logit_grad_samples": set(int(i) for i in logit_grad_samples), "big": {}})
     handles = _ST["handles"]
     mod_count = 0
 
@@ -200,6 +201,8 @@ def _install_loss_level() -> None:
                 _ST["mb"] += 1
             mb = _ST["mb"]
             small = _ST["small"].setdefault(mb, {})
+            ids = batch.get("sample_indices") if isinstance(batch, dict) else None
+            small["sample_indices"] = [int(i) for i in (ids or [])]
             for key in ("log_probs", "advantages", "loss_masks", "response_lengths", "total_lengths", "rewards"):
                 v = batch.get(key) if isinstance(batch, dict) else None
                 if v is None:
@@ -214,7 +217,7 @@ def _install_loss_level() -> None:
                     gg = _unscale("|bwd_", g)
                     _ST["small"].setdefault(mb, {})["logit_grad_row_bits"] = _row_bits(gg)
                     _ST["small"][mb]["logit_grad_row_abs"] = gg.double().abs().sum(-1).reshape(-1).cpu()
-                    if mb in _ST["logit_grad_mb"]:
+                    if mb in _ST["logit_grad_mb"] or _ST["logit_grad_samples"] & set(_ST["small"][mb].get("sample_indices", [])):
                         _ST["big"][f"{mb}|logit_grad"] = gg.detach().to("cpu", copy=True)
                 logits.register_hook(on_logit_grad)
             loss, log = func(args, batch, logits, sum_of_sample_mean, *rest, **kw)

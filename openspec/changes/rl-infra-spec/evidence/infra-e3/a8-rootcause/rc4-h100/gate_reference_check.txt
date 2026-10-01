@@ -1,0 +1,3 @@
+A8 A2_s2 (bad host): DP2-from-scratch step-2 exp_avg rel L2 vs A8's DP1 A1_s2 = 2.647e-03
+RC2 rcA2_s2 (bad host): DP2-from-scratch step-2 exp_avg rel L2 vs A8's DP1 A1_s2 = 2.647e-03
+RC4 eA2_s2 (good host): DP2-from-scratch step-2 exp_avg rel L2 vs A8's DP1 A1_s2 = 3.834e-10

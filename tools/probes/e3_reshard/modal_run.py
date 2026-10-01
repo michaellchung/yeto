@@ -51,6 +51,10 @@ PROFILES = {
     "a8rc-h100c": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 3000, "deterministic": True,
                    "arms": ("eA1", "eP0", "eA2", "eP0b", "eP3", "eP0r", "eCLB"), "arm_deadline_s": 2100,
                    "env_restart_before": {"eP0r": "", "eCLB": "CUDA_LAUNCH_BLOCKING=1"}},
+    # RC-5: host lottery. Battery (GPU0 vs GPU1 op consistency) + from-scratch DP2 gate; only a 'bad' host goes on
+    "a8rc-h100d": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 2700, "deterministic": True,
+                   "arms": ("gA2", "gA1d", "gA2d"), "arm_deadline_s": 1500, "battery": True,
+                   "gate": {"after": "gA2", "ref": "/work/ref/A1_s2.pt", "tag": "s2", "threshold": "1e-5"}},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -60,10 +64,10 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = OVERRIDES["a8rc-h100c"] = list(OVERRIDES["dev-gather"])
+OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = OVERRIDES["a8rc-h100c"] = OVERRIDES["a8rc-h100d"] = list(OVERRIDES["dev-gather"])
 REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",),
                  "a8rc-h100": ("--deterministic-mode",), "a8rc-h100b": ("--deterministic-mode",),
-                 "a8rc-h100c": ("--deterministic-mode",)}
+                 "a8rc-h100c": ("--deterministic-mode",), "a8rc-h100d": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 
@@ -146,8 +150,17 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         "ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9",
         "export RAY_ADDRESS=127.0.0.1:6379",
         'run_phase dry "--phase dry"',
-        'run_phase gen "--phase gen"',
     ]
+    if p.get("battery"):
+        lines.insert(lines.index("ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9"),
+                     f"TORCHINDUCTOR_CACHE_DIR=/tmp/battery_inductor TRITON_CACHE_DIR=/tmp/battery_triton "  # keep the training caches cold
+                     f"PYTHONPATH=/root/miles:/yeto:/yeto/tools/probes/e3_reshard python /yeto/tools/probes/e3_reshard/"
+                     f"gpu_consistency.py {work}/host_info 2>&1 | tail -3 || true")
+    if "gate" in p:  # reuse frozen rollouts of an earlier run when the launcher uploaded them
+        lines += [f'if [ -d /work/frozen_in ]; then mkdir -p {work}/frozen && cp /work/frozen_in/* {work}/frozen/ && '
+                  'progress "frozen rollouts copied"; else run_phase gen "--phase gen"; fi']
+    else:
+        lines += ['run_phase gen "--phase gen"']
     if "arm_deadline_s" in p:  # no new arm after this many seconds, so that pack/pull fit in the hard timeout
         for arm in p["arms"]:
             if p.get("swap_gpus_before") == arm:
@@ -168,8 +181,15 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
                     *([f"export {p['env_restart_before'][arm]}"] if p["env_restart_before"][arm] else []),
                     "ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9",
                 ]
-            lines += [f'if [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
+            stop = '[ "${GATE:-0}" = 3 ]' if "gate" in p else "false"
+            lines += [f'if {stop}; then progress "skip {arm}: good host (gate)"; '
+                      f'elif [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
                       f'else run_phase {arm} "--phase arm --arm {arm}"; fi']
+            g = p.get("gate")
+            if g and g["after"] == arm:
+                lines += [f"PYTHONPATH=/root/miles:/yeto:/yeto/tools/probes/e3_reshard python /yeto/tools/probes/e3_reshard/gate.py "
+                          f"{work} {arm} {g['tag']} {g['ref']} {g['threshold']}; GATE=$?",
+                          'progress "gate rc=$GATE (0 = bad host: continue, 3 = good host: stop)"']
     else:
         lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in p.get("arms", ARMS)]
     if "arms" not in p:  # a8rc*: the analysis is offline (compare_rc.py on the retrieved packed files)
@@ -209,6 +229,10 @@ def main(argv: list[str]) -> int:  # pragma: no cover - needs Modal credentials 
     image = (modal.Image.from_registry(IMAGE, secret=secret).entrypoint([])
              .add_local_dir(str(repo), "/yeto", copy=False, ignore=[".git", "**/__pycache__", "openspec/**"])
              .add_local_file(str(flags), "/work/learner_flags.txt", copy=False))
+    if os.environ.get("E3_REF_FILE"):  # reference DP1 state for the RC-5 gate
+        image = image.add_local_file(os.environ["E3_REF_FILE"], "/work/ref/A1_s2.pt", copy=False)
+    if os.environ.get("E3_FROZEN_DIR"):  # frozen rollouts of an earlier run (skips the gen phase)
+        image = image.add_local_dir(os.environ["E3_FROZEN_DIR"], "/work/frozen_in", copy=False)
     app = modal.App.lookup(app_name, create_if_missing=True)
     try:
         return _run(app, image, profile, p, out)

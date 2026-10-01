@@ -81,7 +81,16 @@ BISECT_ARMS = (
     ArmSpec("eP0r", dp=2, restore="C1", restore_source_dp=1, last_step=3),  # after a Ray restart (fresh cluster)
     ArmSpec("eCLB", dp=2, restore="C1", restore_source_dp=1, last_step=3),  # after a Ray restart, CUDA_LAUNCH_BLOCKING=1
 )
-ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS}
+# a8-rootcause RC-5 (plan.md section 9): from scratch, steps 1-2 only. At step 2 the weights are still the initial
+# ones (step 1 has zero advantage everywhere), so DP1 and DP2 are comparable without any restore. Samples 16-23 are
+# the ones with a gradient at step 2; DP2 rank 1 holds the odd ones.
+_DEEP2 = (("forward_only", True), ("loss_level", True), ("logit_grad_samples", (16, 17, 21)))
+HOST_ARMS = (
+    ArmSpec("gA2", dp=2, last_step=2),  # the gate arm: DP2 from scratch, states compared with the known DP1 states
+    ArmSpec("gA1d", dp=1, last_step=2, trace=True, trace_opts=_DEEP2),
+    ArmSpec("gA2d", dp=2, last_step=2, trace=True, trace_opts=_DEEP2),
+)
+ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS + HOST_ARMS}
 KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"
 TRACE_DUMP = "rc_trace.dump_trace"

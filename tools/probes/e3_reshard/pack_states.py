@@ -93,6 +93,12 @@ def pack(work: Path, merge, load) -> dict:
             index["files"][dst.name] = {"bytes": dst.stat().st_size,
                                         "sha256": hashlib.sha256(dst.read_bytes()).hexdigest()}
             print(f"packed trace {dst.name} {dst.stat().st_size / 2**20:.1f} MiB", flush=True)
+    # frozen rollouts travel too, so that a later run can skip the gen phase (modal_run: E3_FROZEN_DIR)
+    frozen = Path(work) / "frozen"
+    for src in sorted(frozen.glob("*.pt")) if frozen.is_dir() else ():
+        dst = out_dir / f"frozen_{src.name}"
+        dst.write_bytes(src.read_bytes())
+        index["files"][dst.name] = {"bytes": dst.stat().st_size, "sha256": hashlib.sha256(dst.read_bytes()).hexdigest()}
     (out_dir / "index.json").write_text(json.dumps(index, indent=1, sort_keys=True))
     return index
 

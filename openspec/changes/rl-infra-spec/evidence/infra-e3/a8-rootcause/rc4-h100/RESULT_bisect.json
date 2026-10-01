@@ -1,0 +1,47 @@
+{
+ "eCLB": {
+  "equal_DP1": false,
+  "equal_bad_mode_ref": false,
+  "equal_good_mode_ref": true,
+  "grad_rel_l2_vs_DP1": 6.247993751809691e-10,
+  "mode": "good",
+  "sign_agreement": 1.0,
+  "update_rel_l2_vs_DP1": 4.4307223611443793e-10
+ },
+ "eP0": {
+  "equal_DP1": false,
+  "equal_bad_mode_ref": false,
+  "equal_good_mode_ref": true,
+  "grad_rel_l2_vs_DP1": 6.247993751809691e-10,
+  "mode": "good",
+  "sign_agreement": 1.0,
+  "update_rel_l2_vs_DP1": 4.4307223611443793e-10
+ },
+ "eP0b": {
+  "equal_DP1": false,
+  "equal_bad_mode_ref": false,
+  "equal_good_mode_ref": true,
+  "grad_rel_l2_vs_DP1": 6.247993751809691e-10,
+  "mode": "good",
+  "sign_agreement": 1.0,
+  "update_rel_l2_vs_DP1": 4.4307223611443793e-10
+ },
+ "eP0r": {
+  "equal_DP1": false,
+  "equal_bad_mode_ref": false,
+  "equal_good_mode_ref": true,
+  "grad_rel_l2_vs_DP1": 6.247993751809691e-10,
+  "mode": "good",
+  "sign_agreement": 1.0,
+  "update_rel_l2_vs_DP1": 4.4307223611443793e-10
+ },
+ "eP3": {
+  "equal_DP1": false,
+  "equal_bad_mode_ref": false,
+  "equal_good_mode_ref": true,
+  "grad_rel_l2_vs_DP1": 6.247993751809691e-10,
+  "mode": "good",
+  "sign_agreement": 1.0,
+  "update_rel_l2_vs_DP1": 4.4307223611443793e-10
+ }
+}
