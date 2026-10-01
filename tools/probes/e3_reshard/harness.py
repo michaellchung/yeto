@@ -61,6 +61,7 @@ RC_ARMS = (
     ArmSpec("rcA2", dp=2, cut_at_step2="C2", last_step=3, trace=True, trace_steps=(1, 2)),
 )
 ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS}
+KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"
 TRACE_DUMP = "rc_trace.dump_trace"
 DUMP_STEPS = (2, 3, 8)
@@ -164,7 +165,7 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
         ev.event("probe_installed", ranks=backend.plugin(INSTALL_PROBE))
         _probe(backend, ev, "start")
         if spec.trace:
-            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {"bwd_scale": 1.0 / spec.dp}))
+            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {"bwd_scale": 1.0 / spec.dp, "profile_kernels": spec.name in KERNEL_PROFILE_ARMS}))
         step = 0
         if spec.restore and spec.standard:
             if spec.restore_source_dp != spec.dp:

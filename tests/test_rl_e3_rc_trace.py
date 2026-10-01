@@ -118,3 +118,16 @@ def test_bwd_scale_makes_dp2_gradients_bit_comparable(tmp_path):
         {k: v["bits"] for k, v in b["records"].items() if "|bwd_" in k}
     assert torch.equal(a["wgrad"][0]["c0.layers.0.lin.weight"], b["wgrad"][0]["c0.layers.0.lin.weight"])
     assert b["bwd_scale"] == 0.5 and "torch" in b["device"]
+
+
+def test_kernel_profile_never_breaks_the_step(tmp_path):
+    rc_trace.reset_for_tests()
+    torch.manual_seed(0)
+    net = Net().to(torch.bfloat16)
+    rc_trace.install_trace(SimpleNamespace(model=[net]), profile_kernels=True, name_filter=r"layers\.\d+$")
+    for k in (0, 1, 2):
+        net(torch.ones(2, 8, dtype=torch.bfloat16) * k).backward()
+    info = rc_trace.dump_trace(SimpleNamespace(), directory=str(tmp_path), tag="t", coord={"dp": 0})
+    payload = torch.load(Path(info["path"]), weights_only=False)
+    assert payload["n_microbatches"] == 3 and isinstance(payload["kernels"], dict)  # kernels, or {"__error__": ...} on CPU
+    assert "env" in payload["device"] and "transformer_engine" in payload["device"]

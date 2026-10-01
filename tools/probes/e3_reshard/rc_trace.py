@@ -87,7 +87,7 @@ def _flush() -> dict[str, Any]:
     return out
 
 
-def install_trace(actor: Any, *, bwd_scale: float = 1.0, save_mb: tuple = (0, 1), name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
+def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool = False, save_mb: tuple = (0, 1), name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
                   save_wgrads: bool = True) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
@@ -95,7 +95,8 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, save_mb: tuple = (0, 1)
     if _ST.get("handles"):
         return {"installed": False, "reason": "already installed"}
     _ST.update({"records": {}, "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
-                "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale), "save_wgrads": bool(save_wgrads), "names": []})
+                "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale),
+                "profile": bool(profile_kernels), "prof": None, "kernels": None, "save_wgrads": bool(save_wgrads), "names": []})
     handles = _ST["handles"]
     mod_count = 0
 
@@ -108,6 +109,7 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, save_mb: tuple = (0, 1)
                 return
             _ST["mb"] += 1
             mb = _ST["mb"]
+            _profile_step(mb)
             for i, t in enumerate(_tensors(list(args)) + _tensors(kwargs or {})):
                 if t.numel():
                     _put(f"{mb}|<root-input>|in|{i}", t)
@@ -179,6 +181,7 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     rec = _flush()
     payload = {"coord": dict(coord), "records": rec, "tensors": dict(_ST["tensors"]) if heavy else {},
                "wgrad": dict(_ST["wgrad"]) if heavy else {}, "bwd_scale": _ST.get("bwd_scale", 1.0),
+               "kernels": _ST.get("kernels"),
                "device": _device_info(),
                "n_microbatches": _ST["mb"] + 1, "env": {k: os.environ.get(k) for k in (
                    "CUBLAS_WORKSPACE_CONFIG", "NCCL_ALGO", "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
@@ -189,7 +192,33 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     _ST["tensors"].clear()
     _ST["wgrad"].clear()
     _ST["mb"] = -1
+    _ST["kernels"] = None if _ST.get("profile") else _ST.get("kernels")
     return {"path": path, "records": len(rec), "microbatches": payload["n_microbatches"], "coord": dict(coord)}
+
+
+def _profile_step(mb: int) -> None:
+    """Kernel names of micro batch 0 (forward+backward; stopped when micro batch 1 starts). Never raises."""
+    if not _ST.get("profile"):
+        return
+    try:
+        import torch
+        from torch.profiler import ProfilerActivity, profile
+
+        if mb == 0 and _ST["prof"] is None and _ST["kernels"] is None:
+            _ST["prof"] = profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU])
+            _ST["prof"].__enter__()
+        elif mb == 1 and _ST["prof"] is not None:
+            torch.cuda.synchronize()
+            prof, _ST["prof"] = _ST["prof"], None
+            prof.__exit__(None, None, None)
+            counts: dict[str, int] = {}
+            for ev in prof.events():
+                if getattr(ev, "device_type", None) is not None and "CUDA" in str(ev.device_type):
+                    counts[ev.name] = counts.get(ev.name, 0) + 1
+            _ST["kernels"] = dict(sorted(counts.items()))
+    except Exception as exc:  # noqa: BLE001 - the probe must not break the step
+        _ST["kernels"] = {"__error__": f"{type(exc).__name__}: {exc}"}
+        _ST["prof"] = None
 
 
 def _device_info() -> dict[str, Any]:
@@ -204,12 +233,19 @@ def _device_info() -> dict[str, Any]:
         props = torch.cuda.get_device_properties(torch.cuda.current_device())
         info.update({"gpu": props.name, "sm_count": props.multi_processor_count,
                      "capability": list(torch.cuda.get_device_capability())})
+    for mod in ("transformer_engine", "flash_attn", "megatron.core", "flashinfer"):
+        try:
+            m = __import__(mod, fromlist=["x"])
+            info[mod] = getattr(m, "__version__", "?")
+        except Exception as exc:  # noqa: BLE001 - absent on CPU / not installed
+            info[mod] = f"unavailable: {type(exc).__name__}"
     try:
-        import transformer_engine as te
-
-        info["transformer_engine"] = getattr(te, "__version__", "?")
-    except Exception:  # noqa: BLE001 - absent on CPU
-        pass
+        info["cudnn"] = torch.backends.cudnn.version()
+        info["cublas"] = ".".join(str(v) for v in torch.cuda.get_cublas_version()) if hasattr(torch.cuda, "get_cublas_version") else None
+    except Exception as exc:  # noqa: BLE001
+        info["cublas_error"] = f"{type(exc).__name__}: {exc}"
+    info["env"] = {k: v for k, v in sorted(os.environ.items())
+                   if k.startswith(("NVTE_", "CUBLAS", "CUDA_", "NCCL_", "TORCH_", "TE_", "NVIDIA_", "CUDNN", "PYTORCH_"))}
     return info
 
 

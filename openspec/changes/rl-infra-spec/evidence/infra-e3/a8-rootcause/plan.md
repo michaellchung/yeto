@@ -72,3 +72,8 @@
   - 复现：rcSb 对 rcSa 的梯度相对 L2 ≥ 0.3% → 在 H100 上复现 A8 的量级；然后按 §2 R2 找首个分歧（第一个在反向执行序中位次最前的不同校验和）；
   - 未复现（<0.3%）：则同状态一步下 DP1/DP2 在 H100 上也等价，A8 的 0.83% 必须来自步 1–2 或数据；看 rcA2 对 rcA1 的步 1、2 记录与 s2 状态；
   - R1 判据同 §2：rcBc=rcSb、rcDd=rcSa 逐位相同 ⇒ 切换无额外差异；任一对不同 ⇒ 记为候选实现缺陷并停下追加载路径。
+
+### 4a. RC-2 补充（主 agent 同意启动时的三点，同一次运行、无额外费用；运行前登记）
+1. 若复现，用逐层追踪定位**第一个**分歧张量/模块。探针另记 kernel 选择信息：`rc_trace` 对 rcSa、rcSb 用 torch profiler 抓微批 0 前向+反传的 CUDA kernel 名称与次数（只在该微批内，异常不影响训练）；dump 记录 TE/flash-attn/Megatron/cuDNN/cuBLAS 版本与全部 `NVTE_*`/`CUBLAS*`/`NCCL_*`/`CUDA_*`/`TORCH_*`/`NVIDIA_*` 环境变量（`device` 字段）。能拿到的"算法 ID"即 kernel 名（含 split-K/stream-K 等变体）。
+2. 汇报分开两项结论：(A) 切换相对标准路径是否逐位一致（rcBc/rcSb、rcDd/rcSa、rcSa/rcA1）；(B) DP1 对 DP2 差多少（rcSb/rcSa；rcA2/rcA1 的步 1–3）。
+3. A8 原数据与 RC 数据是否相同：A8 的冻结样本在其容器内生成、未取回，RC 的冻结样本是新生成的（同 seed 1234、同提示、`--sglang-enable-deterministic-inference`，但不同容器/卡）。运行后以"H100 上 RC 的 rcA1 步 1 逐样本 loss（hex）对 A8 的 A1 步 1"逐位比较判定：全部相同 ⇒ 数据相同；不同 ⇒ 数据不同，写明。A10G（RC-1d）的 loss 因卡不同不可比。
