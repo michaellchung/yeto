@@ -1,0 +1,595 @@
+{
+ "active_samples": [
+  16,
+  17,
+  18,
+  19,
+  20,
+  21,
+  22,
+  23
+ ],
+ "arms": [
+  "gA1d",
+  "gA2d"
+ ],
+ "devices": {
+  "gA1d": {
+   "0": {
+    "CUDA_VISIBLE_DEVICES": null,
+    "coord": {
+     "cp_size": 1,
+     "dp": 0,
+     "dp_size": 1,
+     "ep_size": 1,
+     "global_rank": 0,
+     "pp": 0,
+     "pp_size": 1,
+     "tp": 0,
+     "tp_size": 1
+    },
+    "index": 0,
+    "uuid": "b0fe76be-a16c-bdce-99d2-d79e5da1ac19"
+   }
+  },
+  "gA2d": {
+   "0": {
+    "CUDA_VISIBLE_DEVICES": null,
+    "coord": {
+     "cp_size": 1,
+     "dp": 0,
+     "dp_size": 2,
+     "ep_size": 1,
+     "global_rank": 0,
+     "pp": 0,
+     "pp_size": 1,
+     "tp": 0,
+     "tp_size": 1
+    },
+    "index": 0,
+    "uuid": "b0fe76be-a16c-bdce-99d2-d79e5da1ac19"
+   },
+   "1": {
+    "CUDA_VISIBLE_DEVICES": null,
+    "coord": {
+     "cp_size": 1,
+     "dp": 1,
+     "dp_size": 2,
+     "ep_size": 1,
+     "global_rank": 1,
+     "pp": 0,
+     "pp_size": 1,
+     "tp": 0,
+     "tp_size": 1
+    },
+    "index": 1,
+    "uuid": "2f0785c5-af5b-50e1-043f-db704e3e7b77"
+   }
+  }
+ },
+ "pairs": {
+  "gA1d_vs_gA2d": {
+   "16": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_elements": {
+     "dtype": "torch.bfloat16",
+     "elements": 58343424,
+     "elements_differ": 0,
+     "shape": [
+      1,
+      384,
+      151936
+     ]
+    },
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 0,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        384,
+        1,
+        6144
+       ],
+       [
+        384,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 0
+   },
+   "17": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_elements": {
+     "dtype": "torch.bfloat16",
+     "elements": 58343424,
+     "elements_differ": 0,
+     "shape": [
+      1,
+      384,
+      151936
+     ]
+    },
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 1,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        384,
+        1,
+        6144
+       ],
+       [
+        384,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 2
+   },
+   "18": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 0,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        256,
+        1,
+        6144
+       ],
+       [
+        256,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 0
+   },
+   "19": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 1,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        256,
+        1,
+        6144
+       ],
+       [
+        256,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 1
+   },
+   "20": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 0,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        256,
+        1,
+        6144
+       ],
+       [
+        256,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 1
+   },
+   "21": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_elements": {
+     "dtype": "torch.bfloat16",
+     "elements": 58343424,
+     "elements_differ": 0,
+     "shape": [
+      1,
+      384,
+      151936
+     ]
+    },
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 1,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        384,
+        1,
+        6144
+       ],
+       [
+        384,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 1
+   },
+   "22": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 384,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 0,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        384,
+        1,
+        6144
+       ],
+       [
+        384,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 0
+   },
+   "23": {
+    "forward_only": {
+     "differ": 0,
+     "equal": 33,
+     "first": null
+    },
+    "inputs_equal": {
+     "advantages": true,
+     "log_probs": true,
+     "loss_masks": true,
+     "response_lengths": true,
+     "total_lengths": true
+    },
+    "inputs_maxdiff": {},
+    "logit_grad_row_abs_max_rel": 0.0,
+    "logit_grad_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "logits_row_bits": {
+     "first_rows": [],
+     "rows": 256,
+     "rows_differ": 0
+    },
+    "loss_equal": true,
+    "metrics_equal": true,
+    "rank_x": 0,
+    "rank_y": 1,
+    "training_bwd_in": {
+     "differ": 0,
+     "equal": 1697,
+     "first": null
+    },
+    "training_bwd_out": {
+     "differ": 12,
+     "equal": 1667,
+     "first": {
+      "key": "c0.module.module.decoder.layers.27.mlp.linear_fc1|bwd_out|0",
+      "rel_norm_diff": 0.0,
+      "shape": [
+       [
+        256,
+        1,
+        6144
+       ],
+       [
+        256,
+        1,
+        6144
+       ]
+      ]
+     }
+    },
+    "training_fwd": {
+     "differ": 0,
+     "equal": 1692,
+     "first": null
+    },
+    "wgrad_params_differ": 2
+   }
+  }
+ },
+ "state_bitwise_equal": {
+  "gA1d_vs_gA2d": false
+ }
+}

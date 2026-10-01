@@ -1,0 +1,5 @@
+gA1d_s2 (RC-5a host) vs A8 A1_s2 (DP1, other hosts): exp_avg rel L2 1.255e-02
+gA2_s2 (RC-5a host) vs A8 A1_s2 (DP1, other hosts): exp_avg rel L2 1.255e-02
+gA2d_s2 (RC-5a host) vs A8 A1_s2 (DP1, other hosts): exp_avg rel L2 1.255e-02
+gA1d (DP1) vs gA2d (DP2), both on the RC-5a host: exp_avg rel L2 6.171e-10
+gA2 (no probe) == gA2d (deep probe), both DP2, RC-5a host: True

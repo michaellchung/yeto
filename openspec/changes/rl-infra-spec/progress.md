@@ -619,3 +619,11 @@
 - 已知遗留：E3 trainer 边经 `publish_members` 给新成员重发时，不写 `rl_member_publication` 记录（E1 路径有）；因 A8=no-go，A9 不运行，列为已知遗留，若将来重开 trainer 边需补。
 - 其余遗留：F-R1 相关的 A9 拓扑前提（plan-v4/v6）；L-3/L-4 已知限制。
 - 状态：B3 合计 ≤$11.63；无运行中的 Modal app、无残留进程。
+
+### INFRA-E3 A8 G4 根因调查（2026-10-01；交接点；详见 evidence/infra-e3/a8-rootcause/HANDOFF.md 与 plan.md）
+- 状态：4.6 勾选未改，4.7/4.8 未降级；调查**未完成**（根因未收敛到具体算子）。分支 infra-e3，探针/arm/分析脚本与证据已提交并推送（HEAD 见 git log）；无未提交的重要改动；CPU 测试 `tests/test_rl_e3_harness.py`、`tests/test_rl_e3_rc_trace.py` 通过。
+- 已证实：切换（重分片）路径对一步训练逐位无额外差异（A10G、H100 各自 DP1↔DP2 双向，对标准同形恢复/连续训练逐位相同）；同一主机上 DP1 对 DP2 在 1e-10 量级一致；A8 的 G4 差异在 RC-2（H100）上逐位复现（且与 A8 的 B1 状态逐位相同），只来自 DP2 的 rank1 样本，首个分歧是 loss→logits 的梯度（forward 逐位相同），之后逐层放大；该差异按容器/主机二分、确定性，在另外两台 H100 主机与 A10G 上不出现；RC-5a 的主机则整机对参照主机有同一位置的反传差异（DP1=DP2）。旧结论"bf16 反传不可避免"被推翻。
+- 已排除：探针扰动、arm 顺序/跨 arm 泄漏、Ray 集群状态、launch 时序（CUDA_LAUNCH_BLOCKING）、物理 GPU 编号对调、数据差异、loss 缩放/归约精度。
+- 未解：为什么特定主机的 loss→logits 梯度（Megatron `fused_cross_entropy` 的 torch.compile 内核，或 GPU 实例差异）位级不同；下一步见 HANDOFF.md §4。
+- 费用：本任务累计 ≈ $20.2（上限 $30；台账 `/home/michael/work/infra-drafts/gpu-spend.md`）；所有 a8rc- 前缀 Modal app 均 stopped，无 watchdog 进程。
+- 待批准/决策：4.6/4.7/4.8 的最终状态与是否另行预注册判据，须等根因与因果验证完成后由用户决策（见 HANDOFF.md §6）。

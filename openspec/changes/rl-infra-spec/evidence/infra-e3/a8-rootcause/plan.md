@@ -140,3 +140,11 @@
   - 电池干净而 gate 坏 ⇒ 进程/配置级：用深探针按 RC-3 的规则定位首个分歧（loss 输入 / logits 梯度行 / 完整张量逐元素）；
   - 好主机 ⇒ 不再继续该容器；每次尝试前先向主 agent 报告并记账；**上限：最多 3 次尝试，或累计 GPU 花费达 $26 即停**，余量留给修复验证。
 - 费用：好主机尝试 ≈ 电池 2 min + gen 7 min + gA2 4 min + 启动/打包 4 min ≈ 17 min ≈ $2.2（有冻结数据上传时 ≈ $1.3）；坏主机再加 gA1d、gA2d、取回约 +14 min ≈ $1.9。硬超时 2700 s（上限 $5.9）；累计已花 ≈$16.5。app 名 `a8rc-rc5a-20261001`。
+
+## 9a. RC-5 第 1 次尝试结果（H100!:2，app a8rc-rc5a-20261001，ap-Ye1IVcnVz2Bs7aTJNLljKo，≈06:12–06:39Z，≈$3.6；证据 `rc5a-h100/`）
+- 电池（GPU0 对 GPU1）：12 个算子（lm_head 前向/dgrad/wgrad、MLP/LoRA 矩阵乘、bmm+softmax、词表 softmax/log_softmax、64M 求和、compiled 融合交叉熵前向 loss 与反向 logits 梯度）设备间与重复间全部逐位相同（`rc5a-h100/gate_and_battery.txt`，`host_info/gpu_consistency.json`）。电池只存了布尔值，没有输出校验和，因此**不能跨主机比较**——下一步应补。
+- gate 触发（`GATE exp_avg_rel_l2=1.255e-02`，阈值 1e-5）。但进一步看（`state_comparisons.txt`）：这台主机上 **DP1（gA1d）、DP2（gA2、gA2d）三者对 A8 的 DP1 参照都差 1.255e-2，而 DP1 与 DP2 彼此只差 6.2e-10**。即：这台主机的 DP1 与 DP2 一致（G4 意义下是"好"），但整机与另外几台主机的 step-2 结果不同。gate 的设计前提（"DP1 在所有容器里逐位相同"）在这台主机上不成立，所以这次的"坏主机"是**与参照主机不同的主机**，不是"DP2 的 rank1 出问题"。
+- 数据相同：gA1d 的步 1、2 逐样本 loss（hex）与 A8 的 A1 逐位相同（权重也相同，前向相同）；不同的是反传。
+- **同一位置的首个分歧**（`dp1_hostA_vs_hostX_step2.txt`）：RC-2 主机（DP1 从头，步 2）与 RC-5a 主机（DP1 从头，步 2）同权重同数据：全部 8 个有梯度的微批前向逐位相同，反传的首个不同张量是 `c0.module.module|bwd_out`（logits 的梯度），之后 `output_layer|bwd_in`、整网各层不同。与 RC-2 中"DP2 的 rank1 样本"的首个分歧位置相同。
+- 深探针的 DP1 对 DP2（gA1d 对 gA2d，同一主机）：8 个有梯度样本的 loss 输入、metrics、logits 前向/梯度行校验和、forward-only 通道、完整 logits 梯度张量（样本 16、17、21，bf16 [1,384,151936]）、训练前向/反传校验和全部逐位相同，wgrad 只有次正规数伪差。
+- 状态：本次未继续第 2 次尝试（主 agent 指示在此停止并交接）。app 已 stop，无 watchdog 进程。

@@ -126,24 +126,27 @@ def main(argv: list[str]) -> int:
     run = Path(argv[0])
     work = run / "work" if (run / "work").is_dir() else run
     packed = work / "packed"
-    arms = sorted({p.name.split("_")[0] for p in packed.glob("d*_trace_s3_dp*.pt")})
+    step = int(argv[argv.index("--step") + 1]) if "--step" in argv else 3
+    prefix = argv[argv.index("--prefix") + 1] if "--prefix" in argv else "d"
+    pairs = [tuple(x.split(":")) for x in argv[argv.index("--pairs") + 1].split(",")] if "--pairs" in argv else PAIRS
+    arms = sorted({p.name.split("_")[0] for p in packed.glob(f"{prefix}*_trace_s{step}_dp*.pt")})
     res: dict[str, Any] = {"arms": arms, "devices": {}, "pairs": {}}
     traces: dict[str, dict[int, dict]] = {}
     for arm in arms:
-        traces[arm] = {int(p.stem.rsplit("dp", 1)[1]): _load(p) for p in sorted(packed.glob(f"{arm}_trace_s3_dp*.pt"))}
+        traces[arm] = {int(p.stem.rsplit("dp", 1)[1]): _load(p) for p in sorted(packed.glob(f"{arm}_trace_s{step}_dp*.pt"))}
         res["devices"][arm] = {str(dp): {"coord": t["coord"], "uuid": t["device"].get("uuid"),
                                          "index": t["device"].get("device_index"),
                                          "CUDA_VISIBLE_DEVICES": (t["device"].get("env") or {}).get("CUDA_VISIBLE_DEVICES")}
                                for dp, t in traces[arm].items()}
     ev = {arm: read_events(work / "arms" / arm) for arm in arms}
-    orders = {arm: sample_order(ev[arm], 3) for arm in arms}
+    orders = {arm: sample_order(ev[arm], step) for arm in arms}
     cols = {arm: collect(traces[arm], orders[arm]) for arm in arms}
     # samples with a non-zero loss are the ones with a gradient
-    train = next(e for e in ev[arms[0]] if e["kind"] == "train" and e["step"] == 3)
+    train = next(e for e in ev[arms[0]] if e["kind"] == "train" and e["step"] == step)
     losses = {i: float.fromhex(r["loss_hex"]) for rank in train["probe"] for r in rank if r["kind"] == "loss" for i in r["sample_indices"]}
     active = sorted(i for i, v in losses.items() if v != 0.0)
     res["active_samples"] = active
-    for x, y in PAIRS:
+    for x, y in pairs:
         if x not in cols or y not in cols:
             continue
         rep = {}
@@ -158,12 +161,12 @@ def main(argv: list[str]) -> int:
     try:
         from compare_rc import bitwise_equal
 
-        for x, y in PAIRS:
-            if (packed / f"{x}_s3.pt").is_file() and (packed / f"{y}_s3.pt").is_file():
-                state[f"{x}_vs_{y}"] = bitwise_equal(_load(packed / f"{x}_s3.pt"), _load(packed / f"{y}_s3.pt"))["equal"]
+        for x, y in pairs:
+            if (packed / f"{x}_s{step}.pt").is_file() and (packed / f"{y}_s{step}.pt").is_file():
+                state[f"{x}_vs_{y}"] = bitwise_equal(_load(packed / f"{x}_s{step}.pt"), _load(packed / f"{y}_s{step}.pt"))["equal"]
     except Exception as exc:  # noqa: BLE001
         state["error"] = repr(exc)
-    res["step3_state_bitwise_equal"] = state
+    res["state_bitwise_equal"] = state
     text = json.dumps(res, indent=1, sort_keys=True, default=repr)
     if "--out" in argv:
         Path(argv[argv.index("--out") + 1]).write_text(text)

@@ -1,0 +1,17 @@
+RC-2 gpu NVIDIA H100 80GB HBM3 | RC-5a gpu NVIDIA H100 80GB HBM3 b0fe76be-a16c-bdce-99d2-d79e5da1ac19
+mb 0 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 1 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 2 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 3 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 4 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 5 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 6 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 7 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 584 differ 1095 first c0.module.module|bwd_out|0 | bwd_in: equal 803 differ 894 first c0.module.module.output_layer|bwd_in|0
+mb 8 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None
+mb 9 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1676 differ 3 first c0.module.module|bwd_out|0 | bwd_in: equal 1697 differ 0 first None
+mb 10 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1676 differ 3 first c0.module.module|bwd_out|0 | bwd_in: equal 1697 differ 0 first None
+mb 11 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None
+mb 12 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None
+mb 13 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None
+mb 14 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None
+mb 15 in: equal 2 differ 0 first None | fwd: equal 1689 differ 0 first None | bwd_out: equal 1679 differ 0 first None | bwd_in: equal 1697 differ 0 first None

@@ -1,0 +1,3 @@
+BATTERY {"devices": ["NVIDIA H100 80GB HBM3", "NVIDIA H100 80GB HBM3"], "any_device_difference": false, "any_repeat_difference": false}
+GATE exp_avg_rel_l2=1.255e-02 threshold=1.0e-05
+2026-10-01T06:27:59Z gate rc=0 (0 = bad host: continue, 3 = good host: stop)

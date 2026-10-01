@@ -1,0 +1,118 @@
+{
+ "devices": [
+  "NVIDIA H100 80GB HBM3",
+  "NVIDIA H100 80GB HBM3"
+ ],
+ "ops": {
+  "lm_head_fwd": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "lm_head_dgrad_K151936": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "lm_head_wgrad": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "mlp_up_fwd": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "lora_in_out": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "bmm_qk": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "softmax_fp32_attn": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "softmax_vocab_fp32": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "log_softmax_vocab_fp32": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "sum_64M_fp32": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "fused_ce_compiled_fwd_loss": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  },
+  "fused_ce_compiled_bwd_grad": {
+   "repeat_equal": {
+    "0": true,
+    "1": true
+   },
+   "device_equal": {
+    "0_vs_1": true
+   }
+  }
+ },
+ "any_device_difference": false,
+ "any_repeat_difference": false
+}

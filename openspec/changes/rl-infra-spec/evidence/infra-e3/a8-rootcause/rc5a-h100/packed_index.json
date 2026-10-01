@@ -1,0 +1,95 @@
+{
+ "fields": {
+  "gA1d_s2": {
+   "adapter": "286d666b2de563cf67dcaa8889282aba39c9066ea02c40bea225b390a8360d34",
+   "counters": "094195aaa388e8cdf50ce38d9605ca1b9bcbd575296238fb2365020bfbf5e0ad",
+   "exp_avg": "e1f38424f94132e30a06bbce3c0ba1f5f141df34d13ff85dec9a43a984eda5a0",
+   "exp_avg_sq": "30bcd1e1f997cc5d157e889fe214327094bacc81a1c8edb51826adeda82c0ac3",
+   "hyper": "44eba6f139599a6367d27c59fddf00a59b768e6fc1eb8e518d8f7022d0e253c6",
+   "param": "59c1fb146fa892ac1fd569557150b28096ab0a43811572abf8035981eab492b4",
+   "scheduler": "a5eafcaa0d9410d1bfc6c03115de04abb06011a543a4b2932eaf779b74ce6f68",
+   "shape": "610f4c87b25de227f69a9b39055efa1e8584dd73037679c6055acb71608cb13e",
+   "step": "10db114ecc6a3f301844ec7eeed548f0e4092df2448be22c9831800d7bb28bff"
+  },
+  "gA2_s2": {
+   "adapter": "286d666b2de563cf67dcaa8889282aba39c9066ea02c40bea225b390a8360d34",
+   "counters": "094195aaa388e8cdf50ce38d9605ca1b9bcbd575296238fb2365020bfbf5e0ad",
+   "exp_avg": "549aeda74c233f21b4b5650268e2131c9249b692574ebcc68d85228e3a1946a2",
+   "exp_avg_sq": "0fee64278b55af7e7fbfbb6748150963f6fbd2d0b78f8796723e166f722d81f7",
+   "hyper": "44eba6f139599a6367d27c59fddf00a59b768e6fc1eb8e518d8f7022d0e253c6",
+   "param": "aa67301a7366face254f71af494786cf673735d2368245b8d2459744a81842d9",
+   "scheduler": "a5eafcaa0d9410d1bfc6c03115de04abb06011a543a4b2932eaf779b74ce6f68",
+   "shape": "610f4c87b25de227f69a9b39055efa1e8584dd73037679c6055acb71608cb13e",
+   "step": "10db114ecc6a3f301844ec7eeed548f0e4092df2448be22c9831800d7bb28bff"
+  },
+  "gA2d_s2": {
+   "adapter": "286d666b2de563cf67dcaa8889282aba39c9066ea02c40bea225b390a8360d34",
+   "counters": "094195aaa388e8cdf50ce38d9605ca1b9bcbd575296238fb2365020bfbf5e0ad",
+   "exp_avg": "549aeda74c233f21b4b5650268e2131c9249b692574ebcc68d85228e3a1946a2",
+   "exp_avg_sq": "0fee64278b55af7e7fbfbb6748150963f6fbd2d0b78f8796723e166f722d81f7",
+   "hyper": "44eba6f139599a6367d27c59fddf00a59b768e6fc1eb8e518d8f7022d0e253c6",
+   "param": "aa67301a7366face254f71af494786cf673735d2368245b8d2459744a81842d9",
+   "scheduler": "a5eafcaa0d9410d1bfc6c03115de04abb06011a543a4b2932eaf779b74ce6f68",
+   "shape": "610f4c87b25de227f69a9b39055efa1e8584dd73037679c6055acb71608cb13e",
+   "step": "10db114ecc6a3f301844ec7eeed548f0e4092df2448be22c9831800d7bb28bff"
+  }
+ },
+ "files": {
+  "frozen_rollout_0.pt": {
+   "bytes": 32569,
+   "sha256": "52bb134ad0109556e4098479a13e870639e2fe5b1cde6d37fe8d76b8cce47756"
+  },
+  "frozen_rollout_1.pt": {
+   "bytes": 50745,
+   "sha256": "52f6118212b2a75c3a120efb6a90d733f839e81a53a66eaf600bf19aac425273"
+  },
+  "frozen_rollout_2.pt": {
+   "bytes": 51513,
+   "sha256": "6d51803b6bed47e475ba2c785f861354056257cf238460c066956c96305eb9d5"
+  },
+  "frozen_rollout_3.pt": {
+   "bytes": 43769,
+   "sha256": "674c1c145a9535a26e0e25ca59c2673c24d7b3273c3838150c2478722aeda9eb"
+  },
+  "frozen_rollout_4.pt": {
+   "bytes": 58681,
+   "sha256": "350852c3e192d2cccca00903f1a44ae46b923f2b5507091383ce425f51030926"
+  },
+  "frozen_rollout_5.pt": {
+   "bytes": 72185,
+   "sha256": "c20eade376640faef97aa2a792c91b0922888ec8f10e2283972fec9205de7bcb"
+  },
+  "frozen_rollout_6.pt": {
+   "bytes": 44729,
+   "sha256": "d3e5aa47794db7e332878d7b2ea4f6658276dd3c6f51aefbd467667db7c1d2e6"
+  },
+  "frozen_rollout_7.pt": {
+   "bytes": 65081,
+   "sha256": "fc472afa847c951db4e41066ea78fa91c9b8ff342755563d474f9a9c694e21b1"
+  },
+  "gA1d_s2.pt": {
+   "bytes": 141850871,
+   "sha256": "ecf59bdada47a272e41c7d003530dc9cb690e89a2696e619f088978cea4da71c"
+  },
+  "gA1d_trace_s2_dp0.pt": {
+   "bytes": 1248716201,
+   "sha256": "14a2553ae28fcc5f75204e6a40367ad3e2e8c56d43e0d96597aba2ef23e84566"
+  },
+  "gA2_s2.pt": {
+   "bytes": 141861585,
+   "sha256": "e7fd36ea7d49f344651d1d1b1a2673a7ba25d6d7eaeb95530524897fea945121"
+  },
+  "gA2d_s2.pt": {
+   "bytes": 141868983,
+   "sha256": "efd523c53dfb06c3bad466d06f77a6f1827665cd31c7846093f949be5929e511"
+  },
+  "gA2d_trace_s2_dp0.pt": {
+   "bytes": 752551393,
+   "sha256": "934ef514f3505e9789579fbf31274350ab5721f373398d2a51a38ef5de32061d"
+  },
+  "gA2d_trace_s2_dp1.pt": {
+   "bytes": 869247845,
+   "sha256": "34f653a807f1f5ff991ef60a8dbb32df0d65d781fc23e5b9726ff4278e23812c"
+  }
+ }
+}
