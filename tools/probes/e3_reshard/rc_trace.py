@@ -94,7 +94,8 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                   name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
                   save_wgrads: bool = True, forward_only: bool = False, loss_level: bool = False,
                   logit_grad_mb: tuple = (), fo_filter: str = FO_FILTER,
-                  module_hooks: bool = True, logit_grad_samples: tuple = ()) -> dict[str, Any]:
+                  module_hooks: bool = True, logit_grad_samples: tuple = (), ce_probe: bool = False,
+                  ce_save: int = 1) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
 
@@ -182,7 +183,167 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                     handles.append(p.register_hook(on_wgrad))
     if loss_level:
         _install_loss_level()
-    return {"installed": True, "modules": mod_count, "loss_level": bool(loss_level)}
+    info = {"installed": True, "modules": mod_count, "loss_level": bool(loss_level)}
+    if ce_probe:
+        info["ce_probe"] = _install_ce_probe(int(ce_save))
+    return info
+
+
+def _cs(t: Any) -> dict[str, Any]:
+    """Host-side checksum record of one tensor (see ``_checksum_bits``); taken immediately, never deferred."""
+    bits, norm = _checksum_bits(t)
+    return {"bits": [int(b) for b in bits.cpu().tolist()], "l2": float(norm.cpu()), "shape": tuple(t.shape),
+            "dtype": str(t.dtype)}
+
+
+CE_NAMES = ("calculate_logits_max", "calculate_predicted_logits", "calculate_cross_entropy_loss", "calculate_gradients")
+
+
+def _eager_gradients(softmax: Any, grad_output: Any, target_mask: Any, masked_target_1d: Any) -> Any:
+    """The body of Megatron's ``fused_cross_entropy.calculate_gradients`` without ``torch.compile``."""
+    import torch
+    from megatron.core.tensor_parallel.cross_entropy import VocabParallelCrossEntropy as V
+
+    grad_2d, arange_1d, softmax_update, grad_input = V.prepare_gradient_calculation_operands(softmax, target_mask)
+    grad_input = V.calculate_gradients(grad_2d, arange_1d, masked_target_1d, softmax_update, grad_input, grad_output)
+    return grad_input.to(torch.bfloat16)
+
+
+def _install_ce_probe(save_n: int) -> dict[str, Any]:
+    """Observe Megatron's fused cross entropy (a8-rootcause plan.md section 12).
+
+    Every call of the four ``jit_fuser`` functions is recorded (input and output checksums). In the backward the
+    inputs are cloned BEFORE the original call (it works in place on the softmax) and the same call is repeated on
+    the clones: once through the same compiled function and once eagerly; both outputs are checksummed and compared
+    with the original output. The wrapper always returns the original call's result. The first ``save_n`` backward
+    calls with a non-zero ``grad_output`` of a step keep their full inputs and output (host copies) for offline use.
+    """
+    import torch
+    from megatron.core.fusions import fused_cross_entropy as fce
+
+    ce: dict[str, Any] = {"calls": [], "cur": None, "train_fwd": [], "n_bwd": 0, "saved": 0, "save_n": save_n,
+                          "orig": {n: getattr(fce, n) for n in CE_NAMES}, "fce": fce, "errors": []}
+    _ST["ce"] = ce
+    orig = ce["orig"]
+
+    def guard(fn):
+        def run(*a, **k):
+            try:
+                return fn(*a, **k)
+            except Exception as exc:  # noqa: BLE001 - the probe must never break the step
+                ce["errors"].append(f"{fn.__name__}: {type(exc).__name__}: {exc}")
+                return None
+        return run
+
+    def w_logits_max(x):
+        # (grad mode is always off inside an autograd.Function.forward: forward-only passes are told apart later,
+        # they are the forward records that no backward call claims; mb = the loss-level counter at this moment)
+        rec = {"grad": bool(torch.is_grad_enabled()), "mb": _ST.get("mb", -1), "seq": len(ce["calls"])}
+        rec["sample_ids"] = list(_ST.get("small", {}).get(rec["mb"], {}).get("sample_indices", [])) or None
+        guard(lambda: rec.__setitem__("logits_in", _cs(x)))()
+        ce["calls"].append(rec)
+        ce["cur"] = rec
+        out = orig["calculate_logits_max"](x)
+        guard(lambda: rec.__setitem__("logits_max", _cs(out[1])))()
+        ce["train_fwd"].append(rec)
+        return out
+
+    def w_predicted(vpl, target, logits_max, vs, ve):
+        rec = ce["cur"]
+        if rec is not None:
+            guard(lambda: (rec.__setitem__("logits_shifted_in", _cs(vpl)), rec.__setitem__("target", _cs(target))))()
+        out = orig["calculate_predicted_logits"](vpl, target, logits_max, vs, ve)
+        if rec is not None:
+            def f():
+                rec["target_mask"] = _cs(out[0])
+                rec["masked_target_1d"] = _cs(out[1])
+                rec["pred_sumexp"] = _cs(out[2])
+                rec["exp_logits"] = _cs(out[3])
+            guard(f)()
+        return out
+
+    def w_loss(exp_logits, pred_sumexp):
+        out = orig["calculate_cross_entropy_loss"](exp_logits, pred_sumexp)
+        rec = ce["cur"]
+        if rec is not None:
+            def f():
+                rec["softmax"] = _cs(out[0])
+                rec["loss"] = _cs(out[1])
+                rec["softmax_ptr"] = int(out[0].data_ptr())
+            guard(f)()
+        return out
+
+    def w_grad(softmax, grad_output, target_mask, masked_target_1d):
+        n = ce["n_bwd"]
+        ce["n_bwd"] += 1
+        rec: dict[str, Any] = {"n": n}
+        ptr = int(softmax.data_ptr())
+        fwd = next((r for r in reversed(ce["train_fwd"]) if r.get("softmax_ptr") == ptr and not r.get("matched")), None)
+        if fwd is not None:
+            fwd["matched"] = True
+        rec["fwd_ptr_match"] = fwd is not None
+        rec["fwd_seq"] = fwd["seq"] if fwd is not None else None
+        rec["mb"] = fwd["mb"] if fwd else None
+        rec["sample_ids"] = fwd["sample_ids"] if fwd else None
+        clones: tuple = ()
+        saved_in = None
+
+        def pre():
+            nonlocal clones, saved_in
+            rec["softmax_in"] = _cs(softmax)
+            rec["grad_output"] = _cs(grad_output)
+            rec["target_mask_in"] = _cs(target_mask)
+            rec["masked_target_in"] = _cs(masked_target_1d)
+            rec["grad_output_nonzero"] = bool(grad_output.ne(0).any().item())
+            clones = (softmax.clone(), softmax.clone())
+            if rec["grad_output_nonzero"] and ce["saved"] < ce["save_n"]:
+                ce["saved"] += 1
+                saved_in = {f"ce{n}|softmax_in": softmax.detach().to("cpu", copy=True),
+                            f"ce{n}|grad_output": grad_output.detach().to("cpu", copy=True),
+                            f"ce{n}|target_mask": target_mask.detach().to("cpu", copy=True),
+                            f"ce{n}|masked_target_1d": masked_target_1d.detach().to("cpu", copy=True)}
+        guard(pre)()
+        out = orig["calculate_gradients"](softmax, grad_output, target_mask, masked_target_1d)
+
+        def post():
+            rec["out"] = _cs(out)
+            if clones:
+                r1 = orig["calculate_gradients"](clones[0], grad_output, target_mask, masked_target_1d)
+                r2 = _eager_gradients(clones[1], grad_output, target_mask, masked_target_1d)
+                rec["recompute_compiled"] = _cs(r1)
+                rec["recompute_eager"] = _cs(r2)
+                rec["compiled_equal"] = bool(torch.equal(r1, out))
+                rec["eager_equal"] = bool(torch.equal(r2, out))
+                rec["eager_vs_out_max_abs"] = float((r2.float() - out.float()).abs().max().item())
+            if saved_in is not None:
+                saved_in[f"ce{n}|out"] = out.detach().to("cpu", copy=True)
+                _ST["big"].update(saved_in)
+        guard(post)()
+        ce["calls"].append({"bwd": rec})
+        return out
+
+    fce.calculate_logits_max = w_logits_max
+    fce.calculate_predicted_logits = w_predicted
+    fce.calculate_cross_entropy_loss = w_loss
+    fce.calculate_gradients = w_grad
+    import hashlib
+    import inspect
+
+    return {"source_sha256": hashlib.sha256(inspect.getsource(fce).encode()).hexdigest(), "file": fce.__file__}
+
+
+def _ce_flush() -> list[Any]:
+    ce = _ST.get("ce")
+    if not ce:
+        return []
+    out = list(ce["calls"]) + [{"errors": list(ce["errors"])}]
+    ce["calls"].clear()
+    ce["train_fwd"].clear()
+    ce["errors"].clear()
+    ce["n_bwd"] = 0
+    ce["saved"] = 0
+    ce["cur"] = None
+    return out
 
 
 def _install_loss_level() -> None:
@@ -248,6 +409,7 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     import torch
 
     if not save:
+        _ce_flush()
         _ST["records"].clear()
         _ST["tensors"].clear()
         _ST["wgrad"].clear()
@@ -265,7 +427,7 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     payload = {"coord": dict(coord), "records": rec, "tensors": dict(_ST["tensors"]) if heavy else {},
                "wgrad": dict(_ST["wgrad"]) if heavy else {}, "bwd_scale": _ST.get("bwd_scale", 1.0),
                "kernels": _ST.get("kernels"), "small": dict(_ST.get("small", {})), "big": dict(_ST.get("big", {})) if heavy else {},
-               "device": _device_info(),
+               "device": _device_info(), "ce": _ce_flush(),
                "n_microbatches": _ST["mb"] + 1, "env": {k: os.environ.get(k) for k in (
                    "CUBLAS_WORKSPACE_CONFIG", "NCCL_ALGO", "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
                    "NVIDIA_TF32_OVERRIDE", "NVTE_FLASH_ATTN", "NVTE_FUSED_ATTN", "NVTE_UNFUSED_ATTN")}}
@@ -337,6 +499,10 @@ def _device_info() -> dict[str, Any]:
 
 
 def reset_for_tests() -> None:
+    ce = _ST.get("ce")
+    if ce:
+        for n, f in ce["orig"].items():
+            setattr(ce["fce"], n, f)
     if _ST.get("loss_mod") is not None:
         _ST["loss_mod"].get_loss_function = _ST["loss_orig"]
     for h in _ST.get("handles", []):

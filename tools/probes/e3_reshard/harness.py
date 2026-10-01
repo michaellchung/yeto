@@ -90,7 +90,10 @@ HOST_ARMS = (
     ArmSpec("gA1d", dp=1, last_step=2, trace=True, trace_opts=_DEEP2),
     ArmSpec("gA2d", dp=2, last_step=2, trace=True, trace_opts=_DEEP2),
 )
-ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS + HOST_ARMS}
+# RC-7 (plan.md section 12): the gate arm again, with the fused-cross-entropy probe (rc_trace.ce_probe) at the loss level
+_CE = (("module_hooks", False), ("loss_level", True), ("save_wgrads", False), ("ce_probe", True), ("ce_save", 1))
+CE_ARMS = (ArmSpec("gA2e", dp=2, last_step=2, trace=True, trace_steps=(1,), trace_opts=_CE),)
+ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS + HOST_ARMS + CE_ARMS}
 KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"
 TRACE_DUMP = "rc_trace.dump_trace"

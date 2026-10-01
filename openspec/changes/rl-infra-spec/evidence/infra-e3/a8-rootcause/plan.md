@@ -188,3 +188,32 @@
 - 4 台主机（k1 GPU e98f3a30/9cf118ea；k2 4d528074/a5136919；k3 a7f6c356/70e5ed9e；k4 090644fc/e5e509c3；全部 H100 80GB HBM3、驱动 580.95.05、triton 3.7.1、torch 2.13.0+cu130）× 4 个变体 × 每主机 15 个 worker：对 host 1 的参照（(b) 对 host 1 的 (b)），**8 个样本 × 4 个字段的差异计数全部为 0**。主机内 autotune 选出的 num_warps 集合每台都稳定一致；cubin 的 sha 在同一主机的不同冷编译之间都不稳定（k1 的 a_r0 与 a_r1 已不同），不能当指纹用，名称/num_warps 在四台主机上相同。
 - 判读（按 §11）：**三台与 host 1 全部逐位相同 ⇒ fused CE + `compute_policy_loss` 这条编译链在 4 台主机、8 张 GPU 上没有主机/GPU/rank/冷编译/autotune 相关性；H1 被排除。根因仍未确认。**
 - 局限（必须写明）：这是**孤立的单链测试**，输入是固定种子的合成 logits（不是训练里的 logits、old_logp、优势），也没有整网环境（显存布局、之前 kernel 产出的输入、Ray 多进程、真实 lm_head 输出）。因此它不能复现"整网里的主机差异"；也**不能与 RC-2/A8 的坏模式校验和直接比较**：坏模式的 loss→logits 梯度只有逐行校验和/少数样本的完整梯度张量（RC-5a 的样本 16、17、21，RC-2 无完整张量），真实输入 logits 没有保存，无法逐位重放。零成本核对：现有记录里 logits 前向只有校验和（`<logits>|fwd` 的 bits），没有张量，所以这条链无法用真实输入重放。
+
+## 12. RC-7：真实训练里给融合交叉熵打探针，在新抽的主机上定位首个分歧（第三轮接手；运行前登记；用户已批准本轮，上限 $7）
+### 12.0 背景与目的
+- RC-6/6b 在孤立合成链上排除了 H1（autotune），根因仍未确认。已知：差异的首个位置是 logits 的梯度（`c0.module.module|bwd_out|0`），前向 logits、loss 逐位相同；约 3/5 的主机（RC-2/RC-5a）与参照不同。**未被比较过的**：CE 反传的输入（forward 保存的 softmax/`exp_logits`、`grad_output`、`target_mask`、`masked_target_1d`）与 CE 前向各中间量。
+- 目的：在**与 RC-2/RC-4 相同的 harness、整网真实训练**里，记录每次融合 CE 调用的各阶段校验和；在新容器里抽主机；抽到"与参照不同"的主机后，**同一进程同一主机**用同一份（反传前克隆的）输入把 `calculate_gradients` 重算两次（再走一次同一编译函数、再走 eager），与原输出比较。
+### 12.1 探针（`rc_trace.install_trace(..., ce_probe=True, ce_save=1)`；只读：包装 `megatron.core.fusions.fused_cross_entropy` 的四个 `jit_fuser` 函数，始终返回原调用的结果）
+- 前向每次调用（训练前向与旧策略 forward-only 前向都含；顺序编号 `seq`）：`logits_in`（进入 `calculate_logits_max` 的 logits）、`logits_max`、`logits_shifted_in`（`calculate_predicted_logits` 的输入）、`target`、`target_mask`、`masked_target_1d`、`pred_sumexp`（predicted_logits+sum_exp）、`exp_logits`（除法前）、`softmax`（除法后 = 保存给反传的张量）、`loss`；记 `softmax` 的 data_ptr 供与反传配对。
+- 反传（`calculate_gradients`，它**原地**改写 softmax，所以先克隆两份）：输入 `softmax_in`、`grad_output`、`target_mask_in`、`masked_target_in` 的校验和，输出 `out`（bf16）；然后用克隆输入 (i) 再调一次同一个编译函数 `recompute_compiled`，(ii) 调 eager 版（Megatron 同一函数体，不经 torch.compile）`recompute_eager`；记录 `compiled_equal`/`eager_equal`（与原输出 `torch.equal`）。
+- 每个 rank、最后一步里**前 1 个 `grad_output` 非零的反传调用**保存完整输入（softmax_in fp32、grad_output、target_mask、masked_target_1d）与输出 `out` 到 host（`big`），供离线逐元素比较；另有 loss 级探针（RC-4 的 eP3 同款：loss 输入、logits/logits 梯度的行校验和）。无模型钩子（`module_hooks=False`）。
+- 臂 `gA2e` = DP2 从 0 训练 2 步（与 gate 臂 gA2 相同；`harness.CE_ARMS`），配置 `a8rc-h100e`（`modal_run.PROFILES`）：冻结 rollout 取 RC-5a 取回的 8 个（逐样本 loss 与 A8 相同），容器内 gate 与 A8 的 A1_s2 比 exp_avg（阈值 1e-5，**只用于分类，不再因 gate 停臂**——只有这一个臂）。记录 `host_info/`（`nvidia-smi -q`、`-L`、topo、lscpu、`/proc/cpuinfo` model name、nproc、query.csv：vbios、时钟、ECC、power limit、pci bus）。单测：`tests/test_rl_e3_ce_probe.py`（探针不改变结果；记录齐全；`TORCHDYNAMO_DISABLE=1` 的 CPU 子进程）。离线比较：`ce_compare.py`。
+### 12.2 抽样、预算与回收
+- 第 1 批：**3 台并行**新容器（Modal `H100!:2`，断言 `NVIDIA H100 80GB HBM3` ×2 与 Miles pin，`--modal-retries 0`：脚本本身不重试；app `a8rc-ce1/ce2/ce3-20261001`；每个 Sandbox `timeout=1020 s`；独立 watchdog `WD_S=1100` 按各自的 resources.txt 停 app）。每台预计 ≈11–13 min ≈ $1.5–1.7；**最坏**（跑满超时）每台 ≈$2.24，3 台 ≈ $6.7 ≤ $7 上限。预估本批 ≈ $4.5–5。
+- 第 2 批（仅当第 1 批结束后 实际花费 + 2.24 ≤ 7 且 §12.4 的"所需样本"不满足）：最多再 1 台，同配置。不再有第 3 批。累计 A8 任务已花 ≈ $22.8，本轮上限 $7 ⇒ ≤ $29.8 < $30。
+- 取回：只拉 `packed/`（state、trace）+ evidence；停 app 并核对 `modal app list`；台账只追加自己的行。
+### 12.3 主机分类与"探针是否改变行为"的判据（运行前固定）
+- 分类：gate 的 exp_avg 相对 L2（对 A8 的 A1_s2）≤ 1e-5 为 **good**，> 1e-5 为 **differs**。参照"好"= 与参照一致的主机；两台 differs 主机之间若 state 不同，也可互为比较对象。
+- 探针不改变行为的检验：每台的 `gA2e_s2` exp_avg 与三个已存的同口径（DP2 从 0 训练，步 2）状态之一**逐位相同**：A8 `A2_s2`（类 B1，对参照 2.647e-3）、RC-4 `eA2_s2`（good，3.8e-10）、RC-5a `gA2_s2`（类 X，1.255e-2）。逐位相同 ⇒ 探针对该类无影响；都不相同 ⇒ 记为"新类别"，**不能**排除探针影响，如实报告。
+### 12.4 判读（运行前固定；"首个分歧阶段"按 `ce_compare.py` 的阶段顺序、对同一 rank 的同序调用、两台 state 不同的主机之间）
+所需样本：至少一对 state 不同的主机（good/differs 或 differs/differs），两台都成功取回 trace。
+1. 首个分歧阶段 = `logits_in`（CE 的输入 logits）⇒ 差异在 CE 之上游（lm_head 输出或更前）；本轮不再往前，记录并列为下一轮"继续往前一级追"（logits、lm_head 输出、前一层）。
+2. `logits_in` 相同而首个分歧在 CE 前向某阶段（`logits_max`…`softmax`、`loss`）⇒ 同输入不同输出：前向 kernel/硬件层面主机相关；记录该阶段、元素差异（若有保存的张量）。
+3. CE 前向全部相同、`softmax_in` 相同，而 `grad_output` 不同 ⇒ 差异在 loss 反传（`compute_policy_loss` 反传）而非 CE kernel；`grad_output` 相同而 `out` 不同 ⇒ **同输入的 `calculate_gradients` 输出不同**，进入 4。
+4. 同一主机内重算（在 differs 主机上）：
+   - `compiled_equal` 与 `eager_equal` 均为 True（重算 == 原输出），且（两台主机输入已不同，见 1/3）⇒ **差异在上游**，继续往前一级追；
+   - 两台主机输入相同、输出不同，且在 differs 主机上同输入重算仍等于其原输出（`compiled_equal=True`）而 ≠ good 主机的输出 ⇒ **kernel/硬件层面的主机相关非确定性**，记录 GPU 型号、驱动、频率、SM 数、ECC、vbios、pci 等（host_info/）；若 `compiled_equal=False`（同机同输入重算 ≠ 原输出）⇒ 主机内非确定性（竞争/未初始化内存等），单独记录；
+   - `eager_equal=False` 而 `compiled_equal=True` ⇒ 编译与 eager 本来就是不同计算（RC-6 已知），**不据此判因**，只记录。
+5. 所有 CE 阶段（含 `out`）在 state 不同的主机间都相同 ⇒ 差异产生在 CE 反传输出之后（lm_head dgrad 及以下）或探针改变了行为；记录并按 §12.3 检验。
+6. 抽不到 state 不同的主机（第 1、2 批共 ≤4 台均与同一 state 逐位相同）⇒ 如实报告"未抽到"，不再加批；`compiled_equal`/`eager_equal` 与 `probe_errors` 仍报告。探针自身出现 `probe_errors` 或 `fwd_ptr_match` 缺失 ⇒ 如实报告，不据此下根因结论。
+- 不事后放宽：以上判读与 §12.3 的检验在运行前提交，不改；不改 pin、不改 tasks.md 4.6 勾选、不降级 4.7/4.8。
