@@ -41,6 +41,9 @@ PROFILES = {
     # a8-rootcause (evidence/infra-e3/a8-rootcause/plan.md): same-start controls + trace on a cheap card
     "a8rc": {"gpu": "A10G:2", "expect": ("NVIDIA A10G", "NVIDIA A10"), "timeout": 5400, "deterministic": True,
              "arms": ("rcA1", "rcBc", "rcSa", "rcSb", "rcDd")},
+    # the same arms on the A8 card (plan.md §3): A10G did not reproduce the A8 G4 difference
+    "a8rc-h100": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 3600, "deterministic": True,
+                  "arms": ("rcA1", "rcA2", "rcBc", "rcSa", "rcSb", "rcDd"), "arm_deadline_s": 2700},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -50,8 +53,9 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-OVERRIDES["a8rc"] = list(OVERRIDES["dev-gather"])
-REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",)}
+OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = list(OVERRIDES["dev-gather"])
+REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",),
+                 "a8rc-h100": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 
@@ -76,6 +80,7 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
     lines = [
         "set -uo pipefail",
         "exec 2>&1",  # every command's stderr into the mirrored stream (run 7 lost compare's traceback)
+        "T0=$(date +%s)",  # container start: arm_deadline_s counts from here
         "cd /yeto",  # the reward module (gsm8k_reward.py) is imported from the working directory
         "export LEARNER_ID=0",  # the dry-run learner line reads $LEARNER_ID
         f"mkdir -p {work}/logs",
@@ -135,8 +140,12 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         'run_phase dry "--phase dry"',
         'run_phase gen "--phase gen"',
     ]
-    lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in p.get("arms", ARMS)]
-    if "arms" not in p:  # a8rc: the analysis is offline (compare_rc.py on the retrieved packed files)
+    if "arm_deadline_s" in p:  # no new arm after this many seconds, so that pack/pull fit in the hard timeout
+        lines += [f'if [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
+                  f'else run_phase {arm} "--phase arm --arm {arm}"; fi' for arm in p["arms"]]
+    else:
+        lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in p.get("arms", ARMS)]
+    if "arms" not in p:  # a8rc*: the analysis is offline (compare_rc.py on the retrieved packed files)
         lines += [
             'progress "compare start"',
             f"PYTHONPATH=/root/miles:/yeto python /yeto/tools/probes/e3_reshard/compare.py {work} "

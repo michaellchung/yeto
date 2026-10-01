@@ -650,12 +650,14 @@ def test_rootcause_arms_run_on_the_fake_backend_with_trace(tmp_path, monkeypatch
     tools = Path(harness.__file__).resolve().parent
     monkeypatch.syspath_prepend(str(tools))
     arms = harness.RC_ARMS
-    assert [a.name for a in arms] == ["rcA1", "rcBc", "rcSa", "rcSb", "rcDd"]
+    assert [a.name for a in arms] == ["rcA1", "rcBc", "rcSa", "rcSb", "rcDd", "rcA2"]
     assert [(a.dp, a.restore, a.standard) for a in arms] == [
-        (1, None, False), (2, "C1", False), (1, "C1", True), (2, "C1p", True), (1, "C1p", False)]
+        (1, None, False), (2, "C1", False), (1, "C1", True), (2, "C1p", True), (1, "C1p", False), (2, None, False)]
     dirs = harness.run_all(lambda arm: FakeBackend(), tmp_path, arms)
     for d in dirs:
         kinds = [e["kind"] for e in harness.read_events(d)]
-        assert kinds.count("trace_dump") == (3 if d.name == "rcA1" else 1)  # steps 1-2 only clear the buffers
+        # from-scratch arms dump records at steps 1-2 and fully at step 3; restored arms dump only step 3
+        assert kinds.count("trace_dump") == (3 if d.name in ("rcA1", "rcA2") else 1)
+        assert len(list((d / "trace").glob("trace_s*_dp*.pt"))) >= (3 if d.name in ("rcA1", "rcA2") else 1)
         assert any(e["kind"] == "dump" and e["tag"] == "s3" for e in harness.read_events(d))
         assert list((d / "trace").glob("trace_s3_dp*.pt")), d

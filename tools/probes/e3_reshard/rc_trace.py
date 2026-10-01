@@ -64,10 +64,19 @@ def _tensors(obj: Any) -> list[Any]:
     return []
 
 
+def _unscale(key: str, t: Any) -> Any:
+    """Undo the arm's loss scale on gradients: DP2 divides the loss by 8 instead of 16 (exact factor 2), so a
+    DP2 gradient times 0.5 is bit-comparable with the DP1 one (``bwd_scale`` = 1/dp, a power of two)."""
+    scale = _ST.get("bwd_scale", 1.0)
+    if scale != 1.0 and ("|bwd_" in key) and t.is_floating_point():
+        return t * scale
+    return t
+
+
 def _put(key: str, t: Any) -> None:
     """Record now, on the host: the trainer offloads its GPU memory after the step (run RC-1: a deferred
     ``.cpu()`` on checksums allocated during the step failed with CUDA 'invalid argument' at dump time)."""
-    bits, norm = _checksum_bits(t)
+    bits, norm = _checksum_bits(_unscale(key, t))
     _ST["records"][key] = {"bits": [int(b) for b in bits.cpu().tolist()], "l2": float(norm.cpu()),
                            "shape": tuple(t.shape), "dtype": str(t.dtype)}
 
@@ -78,7 +87,7 @@ def _flush() -> dict[str, Any]:
     return out
 
 
-def install_trace(actor: Any, *, save_mb: tuple = (0, 1), name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
+def install_trace(actor: Any, *, bwd_scale: float = 1.0, save_mb: tuple = (0, 1), name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
                   save_wgrads: bool = True) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
@@ -86,7 +95,7 @@ def install_trace(actor: Any, *, save_mb: tuple = (0, 1), name_filter: str = r"d
     if _ST.get("handles"):
         return {"installed": False, "reason": "already installed"}
     _ST.update({"records": {}, "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
-                "filter": re.compile(name_filter), "handles": [], "save_wgrads": bool(save_wgrads), "names": []})
+                "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale), "save_wgrads": bool(save_wgrads), "names": []})
     handles = _ST["handles"]
     mod_count = 0
 
@@ -125,7 +134,7 @@ def install_trace(actor: Any, *, save_mb: tuple = (0, 1), name_filter: str = r"d
                     def on_grad(g, mb=mb, name=name, i=i):
                         _put(f"{mb}|{name}|bwd_out|{i}", g)
                         if keep(mb, name):
-                            _ST["tensors"][f"{mb}|{name}|bwd_out|{i}"] = g.detach().to("cpu", copy=True)
+                            _ST["tensors"][f"{mb}|{name}|bwd_out|{i}"] = _unscale("|bwd_", g).detach().to("cpu", copy=True)
                     t.register_hook(on_grad)
         return pre, hook
 
@@ -146,12 +155,13 @@ def install_trace(actor: Any, *, save_mb: tuple = (0, 1), name_filter: str = r"d
             for pname, p in chunk.named_parameters():
                 if p.requires_grad:
                     def on_wgrad(g, pname=f"c{ci}.{pname}"):
-                        _ST["wgrad"].setdefault(_ST["mb"], {})[pname] = g.detach().to("cpu", copy=True)
+                        _ST["wgrad"].setdefault(_ST["mb"], {})[pname] = _unscale("|bwd_", g).detach().to("cpu", copy=True)
                     handles.append(p.register_hook(on_wgrad))
     return {"installed": True, "modules": mod_count}
 
 
-def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = None, save: bool = True) -> dict[str, Any]:
+def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = None, save: bool = True,
+               heavy: bool = True) -> dict[str, Any]:
     """Write this rank's trace and clear the buffers (the hooks stay installed); ``save=False`` only clears."""
     import torch
 
@@ -167,7 +177,9 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
 
         coord = dict(_backend(actor).coord())
     rec = _flush()
-    payload = {"coord": dict(coord), "records": rec, "tensors": dict(_ST["tensors"]), "wgrad": dict(_ST["wgrad"]),
+    payload = {"coord": dict(coord), "records": rec, "tensors": dict(_ST["tensors"]) if heavy else {},
+               "wgrad": dict(_ST["wgrad"]) if heavy else {}, "bwd_scale": _ST.get("bwd_scale", 1.0),
+               "device": _device_info(),
                "n_microbatches": _ST["mb"] + 1, "env": {k: os.environ.get(k) for k in (
                    "CUBLAS_WORKSPACE_CONFIG", "NCCL_ALGO", "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
                    "NVIDIA_TF32_OVERRIDE", "NVTE_FLASH_ATTN", "NVTE_FUSED_ATTN", "NVTE_UNFUSED_ATTN")}}
@@ -178,6 +190,27 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     _ST["wgrad"].clear()
     _ST["mb"] = -1
     return {"path": path, "records": len(rec), "microbatches": payload["n_microbatches"], "coord": dict(coord)}
+
+
+def _device_info() -> dict[str, Any]:
+    import torch
+
+    info: dict[str, Any] = {"torch": torch.__version__, "cuda": torch.version.cuda,
+                            "deterministic_algorithms": bool(torch.are_deterministic_algorithms_enabled()),
+                            "tf32_matmul": bool(torch.backends.cuda.matmul.allow_tf32),
+                            "bf16_reduced_precision_reduction":
+                                bool(getattr(torch.backends.cuda.matmul, "allow_bf16_reduced_precision_reduction", None))}
+    if torch.cuda.is_available():
+        props = torch.cuda.get_device_properties(torch.cuda.current_device())
+        info.update({"gpu": props.name, "sm_count": props.multi_processor_count,
+                     "capability": list(torch.cuda.get_device_capability())})
+    try:
+        import transformer_engine as te
+
+        info["transformer_engine"] = getattr(te, "__version__", "?")
+    except Exception:  # noqa: BLE001 - absent on CPU
+        pass
+    return info
 
 
 def reset_for_tests() -> None:

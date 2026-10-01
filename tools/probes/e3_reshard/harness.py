@@ -38,6 +38,7 @@ class ArmSpec:
     last_step: int = 8
     standard: bool = False  # same-shape restore through ``restore_cut`` (E2 path), not the resharded loader
     trace: bool = False  # install rc_trace (a8-rootcause) and dump it after each trained step
+    trace_steps: tuple = ()  # steps whose trace is kept; the last step always is. Earlier ones: records only
 
 
 # plan-v3 §2.1, in order.
@@ -51,11 +52,13 @@ ARMS = (
 )
 # a8-rootcause plan.md: same C (= C1 from rcA1), frozen data, four load paths x two DP shapes.
 RC_ARMS = (
-    ArmSpec("rcA1", dp=1, cut_at_step2="C1", last_step=3, trace=True),  # continuous DP1 from scratch
+    ArmSpec("rcA1", dp=1, cut_at_step2="C1", last_step=3, trace=True, trace_steps=(1, 2)),  # continuous DP1 from scratch
     ArmSpec("rcBc", dp=2, restore="C1", restore_source_dp=1, save_after_restore="C1p", last_step=3, trace=True),  # (c)
     ArmSpec("rcSa", dp=1, restore="C1", restore_source_dp=1, standard=True, last_step=3, trace=True),  # (a)
     ArmSpec("rcSb", dp=2, restore="C1p", restore_source_dp=2, standard=True, last_step=3, trace=True),  # (b)
     ArmSpec("rcDd", dp=1, restore="C1p", restore_source_dp=2, last_step=3, trace=True),  # (d)
+    # from scratch, no restore anywhere (A8's A1/A2 pair); traces of steps 1-2 are records only (no tensors)
+    ArmSpec("rcA2", dp=2, cut_at_step2="C2", last_step=3, trace=True, trace_steps=(1, 2)),
 )
 ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS}
 TRACE_INSTALL = "rc_trace.install_trace"
@@ -161,7 +164,7 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
         ev.event("probe_installed", ranks=backend.plugin(INSTALL_PROBE))
         _probe(backend, ev, "start")
         if spec.trace:
-            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL))
+            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {"bwd_scale": 1.0 / spec.dp}))
         step = 0
         if spec.restore and spec.standard:
             if spec.restore_source_dp != spec.dp:
@@ -197,9 +200,12 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
                 ev.event("cut", cut_id=spec.cut_at_step2, step=step)
             if step in DUMP_STEPS:
                 _dump(backend, ev, f"s{step}")
-            if spec.trace:  # only the last (compared) step is kept; earlier steps just clear the buffers
+            if spec.trace:  # last step: full dump; steps in trace_steps: records only; others just clear the buffers
+                last = step == spec.last_step
+                keep = last or step in spec.trace_steps
                 ev.event("trace_dump", step=step, ranks=backend.plugin(
-                    TRACE_DUMP, {"directory": str(ev.dir / "trace"), "tag": f"s{step}", "save": step == spec.last_step}))
+                    TRACE_DUMP, {"directory": str(ev.dir / "trace"), "tag": f"s{step}", "save": keep,
+                                 "heavy": last}))
         _probe(backend, ev, "end")
         ev.event("end", arm=spec.name, step=step)
     except BaseException as exc:

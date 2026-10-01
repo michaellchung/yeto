@@ -186,26 +186,53 @@ def main(argv: list[str]) -> int:
     run = Path(argv[0])
     work = run / "work" if (run / "work").is_dir() else run
     packed = work / "packed"
+    present = sorted({p.name.split("_")[0] for p in packed.glob("rc*_s3.pt")})
     st = lambda arm, tag: _load(packed / f"{arm}_{tag}.pt")  # noqa: E731
-    res: dict[str, Any] = {"states": {}, "trace": {}, "wgrad": {}}
+    res: dict[str, Any] = {"arms": present, "states": {}, "trace": {}, "wgrad": {}}
     c1 = st("rcA1", "s2")
-    s3 = {arm: st(arm, "s3") for arm in ("rcA1", "rcBc", "rcSa", "rcSb", "rcDd")}
-    restored = {arm: st(arm, "restored") for arm in ("rcBc", "rcSa", "rcSb", "rcDd")}
+    s3 = {arm: st(arm, "s3") for arm in present}
+    restored = {arm: st(arm, "restored") for arm in present if (packed / f"{arm}_restored.pt").is_file()}
     res["states"]["restored_equals_C1"] = {a: bitwise_equal(c1, s) for a, s in restored.items()}
-    for x, y in (("rcBc", "rcSb"), ("rcDd", "rcSa"), ("rcSa", "rcA1"), ("rcSb", "rcSa"), ("rcBc", "rcA1"),
-                 ("rcBc", "rcDd")):
-        res["states"][f"{x}_vs_{y}"] = {"bitwise": bitwise_equal(s3[x], s3[y]),
-                                        "metrics": state_metrics(c1, s3[y], c1, s3[x])}
-    traces = {}
-    for arm in ("rcA1", "rcSa", "rcSb", "rcBc", "rcDd"):
-        traces[arm] = {int(p.stem.rsplit("dp", 1)[1]): _load(p) for p in sorted(packed.glob(f"{arm}_trace_s3_dp*.pt"))}
-    orders = {arm: sample_order(read_events(work / "arms" / arm)) for arm in traces}
-    col = {arm: collect(traces[arm], orders[arm]) for arm in traces}
-    for x, y in (("rcSa", "rcSb"), ("rcA1", "rcSa"), ("rcBc", "rcSb"), ("rcDd", "rcSa"), ("rcSa", "rcDd")):
-        res["trace"][f"{x}_vs_{y}"] = trace_report(col[x], col[y])
-        unit = {"rcSb": 0.5, "rcBc": 0.5}  # DP2 arms: loss / 8 instead of / 16 (exact factor 2)
-        res["wgrad"][f"{x}_vs_{y}"] = wgrad_report(col[x], col[y], unit.get(x, 1.0), unit.get(y, 1.0))
-    res["wgrad"]["reaccumulate_DP1_vs_DP2_order"] = reaccumulate(col["rcSa"], orders["rcSa"][0], orders["rcSb"], col["rcSb"])
+    pairs = [("rcBc", "rcSb"), ("rcDd", "rcSa"), ("rcSa", "rcA1"), ("rcSb", "rcSa"), ("rcBc", "rcA1"), ("rcBc", "rcDd"),
+             ("rcA2", "rcA1")]
+    for x, y in pairs:
+        if x in s3 and y in s3:
+            res["states"][f"{x}_vs_{y}"] = {"bitwise": bitwise_equal(s3[x], s3[y]),
+                                            "metrics": state_metrics(c1, s3[y], c1, s3[x])}
+    if "rcA2" in s3 and (packed / "rcA2_s2.pt").is_file():  # no restore anywhere: from-scratch DP1 vs DP2, step 2
+        a2s2 = st("rcA2", "s2")
+        res["states"]["rcA2_s2_vs_rcA1_s2"] = {"bitwise": bitwise_equal(a2s2, c1)}
+        res["states"]["rcA2_s2_vs_rcA1_s2"]["exp_avg_rel_l2"] = rel(flat(c1, "exp_avg"), flat(a2s2, "exp_avg"))
+        res["states"]["rcA2_s2_vs_rcA1_s2"]["exp_avg_sq_rel_l2"] = rel(flat(c1, "exp_avg_sq"), flat(a2s2, "exp_avg_sq"))
+    raw_scale = False
+    traces: dict[str, dict[str, dict[int, dict]]] = {}
+    for arm in present:
+        traces[arm] = {}
+        for f in sorted(packed.glob(f"{arm}_trace_s*_dp*.pt")):
+            tag, dp = f.stem.split("_trace_")[1].rsplit("_dp", 1)
+            payload = _load(f)
+            raw_scale = raw_scale or "bwd_scale" not in payload
+            traces[arm].setdefault(tag, {})[int(dp)] = payload
+    res["gradient_scale_stored_raw"] = raw_scale
+    ev = {arm: read_events(work / "arms" / arm) for arm in present}
+    cmp_pairs = [("rcSa", "rcSb", "s3"), ("rcA1", "rcSa", "s3"), ("rcBc", "rcSb", "s3"), ("rcDd", "rcSa", "s3"),
+                 ("rcA1", "rcA2", "s1"), ("rcA1", "rcA2", "s2"), ("rcA1", "rcA2", "s3")]
+    for x, y, tag in cmp_pairs:
+        if x not in traces or y not in traces or tag not in traces[x] or tag not in traces[y]:
+            continue
+        step = int(tag[1:])
+        cx = collect(traces[x][tag], sample_order(ev[x], step))
+        cy = collect(traces[y][tag], sample_order(ev[y], step))
+        name = f"{x}_vs_{y}_{tag}"
+        res["trace"][name] = trace_report(cx, cy)
+        if tag == "s3" and any(traces[x][tag][d]["wgrad"] for d in traces[x][tag]):
+            unit = {"rcSb": 0.5, "rcBc": 0.5, "rcA2": 0.5} if raw_scale else {}
+            res["wgrad"][name] = wgrad_report(cx, cy, unit.get(x, 1.0), unit.get(y, 1.0))
+    if "rcSa" in traces and "rcSb" in traces and traces["rcSa"].get("s3") and traces["rcSb"].get("s3"):
+        a = collect(traces["rcSa"]["s3"], sample_order(ev["rcSa"], 3))
+        b = collect(traces["rcSb"]["s3"], sample_order(ev["rcSb"], 3))
+        res["wgrad"]["reaccumulate_DP1_vs_DP2_order"] = reaccumulate(a, sample_order(ev["rcSa"], 3)[0],
+                                                                      sample_order(ev["rcSb"], 3), b)
     text = json.dumps(res, indent=1, sort_keys=True, default=repr)
     if "--out" in argv:
         Path(argv[argv.index("--out") + 1]).write_text(text)

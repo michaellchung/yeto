@@ -96,3 +96,25 @@ def test_compare_rc_finds_the_first_differing_record_and_wgrad(tmp_path):
     assert rep["fwd"]["differ"] == 0
     assert compare_rc.wgrad_report(a, b, 1.0, 0.5)["per_sample"]["11"]["differ"] == 0
     assert compare_rc.wgrad_report(a, b)["per_sample"]["11"]["differ"] == 1
+
+
+def test_bwd_scale_makes_dp2_gradients_bit_comparable(tmp_path):
+    """DP2 divides the loss by 8, DP1 by 16: with bwd_scale=1/dp the recorded gradients, wgrads and saved tensors of the
+    two arms are bit-identical for the same micro batch (power-of-two scaling is exact)."""
+    def run(scale, loss_mult, sub):
+        rc_trace.reset_for_tests()
+        torch.manual_seed(0)
+        net = Net().to(torch.bfloat16)
+        rc_trace.install_trace(SimpleNamespace(model=[net]), bwd_scale=scale, save_mb=(0,),
+                               name_filter=r"layers\.\d+$")
+        x = (torch.arange(16, dtype=torch.float32).reshape(2, 8) * 0.1).to(torch.bfloat16)
+        (net(x) * loss_mult).backward()
+        info = rc_trace.dump_trace(SimpleNamespace(), directory=str(tmp_path / sub), tag="t", coord={"dp": 0})
+        return torch.load(Path(info["path"]), weights_only=False)
+
+    a = run(1.0, 1.0, "dp1")
+    b = run(0.5, 2.0, "dp2")
+    assert {k: v["bits"] for k, v in a["records"].items() if "|bwd_" in k} == \
+        {k: v["bits"] for k, v in b["records"].items() if "|bwd_" in k}
+    assert torch.equal(a["wgrad"][0]["c0.layers.0.lin.weight"], b["wgrad"][0]["c0.layers.0.lin.weight"])
+    assert b["bwd_scale"] == 0.5 and "torch" in b["device"]
