@@ -148,3 +148,24 @@
 - **同一位置的首个分歧**（`dp1_hostA_vs_hostX_step2.txt`）：RC-2 主机（DP1 从头，步 2）与 RC-5a 主机（DP1 从头，步 2）同权重同数据：全部 8 个有梯度的微批前向逐位相同，反传的首个不同张量是 `c0.module.module|bwd_out`（logits 的梯度），之后 `output_layer|bwd_in`、整网各层不同。与 RC-2 中"DP2 的 rank1 样本"的首个分歧位置相同。
 - 深探针的 DP1 对 DP2（gA1d 对 gA2d，同一主机）：8 个有梯度样本的 loss 输入、metrics、logits 前向/梯度行校验和、forward-only 通道、完整 logits 梯度张量（样本 16、17、21，bf16 [1,384,151936]）、训练前向/反传校验和全部逐位相同，wgrad 只有次正规数伪差。
 - 状态：本次未继续第 2 次尝试（主 agent 指示在此停止并交接）。app 已 stop，无 watchdog 进程。
+
+## 10. RC-6：kernel 选择因果检验（运行前登记；接手者续作；本任务累计已花 ≈$20.2，剩余上限 $10，本次预估 ≈$3，硬上限 $5.3）
+### 10.0 静态核查（CPU，已得）
+1. Miles `compute_log_probs`（`math_utils.py`）**无条件**走 Megatron `fused_vocab_parallel_cross_entropy`；`megatron/core/jit.py` 的 `jit_fuser = torch.compile`（torch≥2.2），Miles 与 yeto 都没有调用 `disable_jit_fuser`，也没有设置任何 `TORCHINDUCTOR_*`/`TRITON_*`。Megatron 的 `--deterministic-mode` 只要求 `cross_entropy_loss_fusion=False`（`training/determinism.py`），但该开关只作用于 Megatron 自己的 LM loss，Miles 的 log-prob 路径绕过它。⇒ A8 "确定性模式"下，loss→logits 梯度依然经过 `torch.compile`（Inductor/Triton）生成的 kernel。loss 本身另有 `compute_policy_loss` / `compute_approx_kl`（`@torch.compile(dynamic=True)`），其反传产生 fused CE 的 `grad_output`。
+2. 镜像里的 torch 2.13.0+cu130（本地 `/tmp/review-miles-venv` 同版本）默认 `inductor.max_autotune=False`、`coordinate_descent_tuning=False`、`triton.autotune_pointwise=True`、`fx_graph_cache=True`；`triton_heuristics.pointwise` 在 `autotune_pointwise=True` 时给出 **≥2 个 config（num_elements_per_warp 256/64）并按实测耗时挑选**，persistent/普通 reduction 也有按 hint 的 config 集。⇒ 默认就存在"按实测耗时选 kernel config"的机制；Inductor 与 Triton 的缓存目录默认为 `/tmp/torchinductor_<user>` 与 `~/.triton/cache`，**同一容器内的两个 rank 进程和所有 arm 共享**（谁先编译谁写 `.best_config`/cubin，后来者直接读）。这使"每个容器内确定、容器之间不同"的现象在机理上说得通（假设，待验证）。
+3. 此前电池只在**单个进程**里跑 GPU0 与 GPU1（两卡共用同一份编译产物和 autotune 结果），不能暴露"每个 rank 进程各自编译/autotune"的差异；训练时每个 rank 是独立进程、同时冷编译。
+### 10.1 设计（`tools/probes/e3_reshard/kernel_probe.py`，容器里无 Ray、无训练；`kernel_probe_run.py` 启动；`kernel_probe_compare.py` 离线汇总；CPU 测试 `tests/test_rl_e3_kernel_probe.py`；已在 torch 2.13 CPU 上冒烟通过）
+- 每个 worker 是独立进程，用 `CUDA_VISIBLE_DEVICES` 绑 GPU0 或 GPU1，**同时启动**（像训练的两个 rank）。输入固定：8 个样本（token 数 TS=[384,347,291,402,256,331,365,318]，V=151936，种子固定，bf16 logits→fp32→Megatron fused CE→Miles `compute_policy_loss`→backward）。GPU0 的样本顺序从样本 0 起，GPU1 从样本 1 起（`rot`），即两进程首个形状不同（torch.compile 先静态再动态）；两者最终都算完 8 个样本，因此可逐样本逐位比较。
+- 每个样本记录：loss、log-prob、fused CE 的 `grad_output`、logits 的 bf16 梯度的 sha256；跑完后哈希 Inductor/Triton 缓存里所有 cubin（kernel 名、num_warps、num_stages）和 `.best_config`（autotune 选择）。
+- 阶段（`PHASES`，写死，事后不改）：
+  - (a) 现状：默认 Inductor 设置，每次**冷缓存**、两进程共享缓存目录，重复 3 次；
+  - (b) 关闭全部 torch.compile（`TORCHDYNAMO_DISABLE=1`，融合 CE 与 loss 都走 eager，即非融合路径），1 次；
+  - (c1) 关 autotune（`max_autotune=0`、`coordinate_descent_tuning=0`、`max_autotune_pointwise=0`、`triton.autotune_pointwise=False`），冷共享缓存，重复 2 次；
+  - (c2) 固定缓存：先由单个进程冷编译一份缓存（关 autotune），再让两个 rank 只读这份缓存，1 次；
+  - (d) 即 (a) 内部 GPU0 与 GPU1 的各自冷编译 config 对比（每个 worker 独立记录 `.best_config`/cubin）。
+### 10.2 预先声明的判读（不得事后放宽）
+- "逐位相同" = 同一变体内所有 worker（两个 GPU × 所有重复）对全部 8 个样本、全部 4 个字段（loss/logp/grad_output/logit_grad）的 sha256 完全相等。
+- **确认根因（autotune/kernel 选择）**需同时满足：(a) 内出现 worker 间 logit_grad 或 grad_output 不相等，且这些 worker 的 `.best_config`/cubin（num_warps 等）集合与其它 worker 不同；(c1) 与 (c2) 内所有 worker 逐位相同。若 (b) 内也不等（eager 都不确定）⇒ 归为硬件/库层（H2），不是编译选择。
+- 若 (a) 内也全部逐位相同：本主机不暴露该机制，**不能**确认也不能排除；只记录 cubin/config 指纹作为跨主机参照；是否再抽一台主机（≈$3）由剩余预算决定（剩余 < $5 则停并如实汇报"未确认"）。
+- 若 (a) 内 worker 间差异存在但 config 集合相同：编译选择被排除，转向其它来源（如静态/动态 shape 特化、同一 kernel 的硬件差异），如实记录。
+- 费用：容器启动 ≈4 min + 7 个 worker 对 ≈ 2 min 各 ≈ 14 min + 取回 ≈ 22 min ≈ $2.9；`Sandbox timeout=2400 s`（上限 $5.3）；独立 watchdog 2700 s；app 名 `a8rc-k1-20261001`；断言 `H100 80GB HBM3` 两张、Miles pin；`--modal-retries 0`（本脚本不重试）。
