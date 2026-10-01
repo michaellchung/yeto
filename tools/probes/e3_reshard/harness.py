@@ -39,6 +39,7 @@ class ArmSpec:
     standard: bool = False  # same-shape restore through ``restore_cut`` (E2 path), not the resharded loader
     trace: bool = False  # install rc_trace (a8-rootcause) and dump it after each trained step
     trace_steps: tuple = ()  # steps whose trace is kept; the last step always is. Earlier ones: records only
+    trace_opts: tuple = ()  # (key, value) pairs passed to rc_trace.install_trace (RC-4 probe bisection)
     deep: bool = False  # also record the forward-only (old log-prob) pass, loss inputs/metrics, logits-gradient rows
 
 
@@ -69,7 +70,18 @@ DEEP_ARMS = (
     ArmSpec("dSaX", dp=1, restore="C1", restore_source_dp=1, standard=True, last_step=3, trace=True, deep=True),
     ArmSpec("dSbX", dp=2, restore="C1p", restore_source_dp=2, standard=True, last_step=3, trace=True, deep=True),
 )
-ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS}
+# a8-rootcause RC-4 (plan.md section 7): which factor flips the DP2 numerics between the runs? States only, little probing.
+_P3 = (("module_hooks", False), ("loss_level", True), ("save_wgrads", False))
+BISECT_ARMS = (
+    ArmSpec("eA1", dp=1, cut_at_step2="C1", last_step=3),
+    ArmSpec("eP0", dp=2, restore="C1", restore_source_dp=1, last_step=3),
+    ArmSpec("eA2", dp=2, cut_at_step2="C2", last_step=3),
+    ArmSpec("eP0b", dp=2, restore="C1", restore_source_dp=1, last_step=3),
+    ArmSpec("eP3", dp=2, restore="C1", restore_source_dp=1, last_step=3, trace=True, trace_opts=_P3),
+    ArmSpec("eP0r", dp=2, restore="C1", restore_source_dp=1, last_step=3),  # after a Ray restart (fresh cluster)
+    ArmSpec("eCLB", dp=2, restore="C1", restore_source_dp=1, last_step=3),  # after a Ray restart, CUDA_LAUNCH_BLOCKING=1
+)
+ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS}
 KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"
 TRACE_DUMP = "rc_trace.dump_trace"
@@ -177,7 +189,8 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
             ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {
                 "bwd_scale": 1.0 / spec.dp, "profile_kernels": spec.name in KERNEL_PROFILE_ARMS,
                 **({"forward_only": True, "loss_level": True,
-                    "logit_grad_mb": [9] if spec.dp == 1 else [4]} if spec.deep else {})}))
+                    "logit_grad_mb": [9] if spec.dp == 1 else [4]} if spec.deep else {}),
+                **dict(spec.trace_opts)}))
         step = 0
         if spec.restore and spec.standard:
             if spec.restore_source_dp != spec.dp:

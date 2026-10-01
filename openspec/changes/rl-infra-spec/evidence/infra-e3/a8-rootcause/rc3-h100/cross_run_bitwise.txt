@@ -1,0 +1,6 @@
+A8 A1_s2 == RC2 rcA1_s2: True {}
+A8 A1_s2 == RC3 dA1_s2: True {}
+A8 A1_s3 (DP1) == RC2 rcA1_s3 (DP1): True {}
+RC2 rcA1_s3 (DP1) == RC3 dA1_s3 (DP1): True {}
+A8 B1_s3 (DP2, restored C1) == RC2 rcBc_s3 (DP2): True {}
+A8 B1_s3 (DP2) == RC3 dBc_s3 (DP2): False {'param': 8606827, 'exp_avg': 9119655, 'exp_avg_sq': 9118589, 'adapter_tensors': 375}

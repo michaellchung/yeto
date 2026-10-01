@@ -93,7 +93,8 @@ FO_FILTER = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|module\.modul
 def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool = False, save_mb: tuple = (0, 1),
                   name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
                   save_wgrads: bool = True, forward_only: bool = False, loss_level: bool = False,
-                  logit_grad_mb: tuple = (), fo_filter: str = FO_FILTER) -> dict[str, Any]:
+                  logit_grad_mb: tuple = (), fo_filter: str = FO_FILTER,
+                  module_hooks: bool = True) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
 
@@ -102,7 +103,7 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
     _ST.update({"records": {}, "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
                 "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale),
                 "profile": bool(profile_kernels), "prof": None, "kernels": None, "save_wgrads": bool(save_wgrads), "names": [],
-                "fo": -1, "forward_only": bool(forward_only), "fo_filter": re.compile(fo_filter), "small": {},
+                "fo": -1, "module_hooks": bool(module_hooks), "forward_only": bool(forward_only), "fo_filter": re.compile(fo_filter), "small": {},
                 "logit_grad_mb": set(int(i) for i in logit_grad_mb), "big": {}})
     handles = _ST["handles"]
     mod_count = 0
@@ -160,6 +161,8 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
     chunks = list(getattr(actor, "model", None) or [])
     if not chunks:
         raise RuntimeError("actor has no model chunks")
+    if not module_hooks:  # loss-level probe only (RC-4 bisection): no hooks on the model, no root counter
+        chunks = []
     for ci, chunk in enumerate(chunks):
         handles.append(chunk.register_forward_pre_hook(make_pre_root(), with_kwargs=True))
         for name, m in chunk.named_modules():
@@ -193,6 +196,8 @@ def _install_loss_level() -> None:
         func = orig(*a, **k)
 
         def recorded(args, batch, logits, sum_of_sample_mean, *rest, **kw):
+            if not _ST["module_hooks"]:
+                _ST["mb"] += 1
             mb = _ST["mb"]
             small = _ST["small"].setdefault(mb, {})
             for key in ("log_probs", "advantages", "loss_masks", "response_lengths", "total_lengths", "rewards"):

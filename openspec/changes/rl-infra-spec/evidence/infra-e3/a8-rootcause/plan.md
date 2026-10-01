@@ -95,3 +95,29 @@
   3. 若所有 loss 输入与 metrics 逐位相同、logits 梯度行校验和仍不同：用保存的 logits 梯度张量逐元素比较，判定差异落在哪些行/列（目标 token 列、响应行、低概率列）及量级；这是 loss 反传算子本身在 rank1 上的数值差异。
   4. **H-gpu vs H-rank**：dSaX 对 dA1 逐位相同 ⇒ DP1 在物理 GPU 1 上与 GPU 0 一致；不同 ⇒ 物理 GPU 1 的数值不同。dSbX 对 dBc 逐位相同且 rank1 的样本仍与 DP1 不同 ⇒ 差异跟 rank/进程/样本走，不跟物理 GPU 走；若互换后 rank0 的样本变为不同而 rank1 的变为相同 ⇒ 差异跟物理 GPU 走。（主 agent 建议的"对调样本到 rank 的分派"：分派在 rollout 侧调度，本批不改；如需要，作为后续单独登记。）
 - 费用与上限：Modal `H100!:2`，硬超时 2700 s、新 arm 最迟 1800 s、watchdog 3000 s；预估 $4–5，上限 $5.9；累计已花 ≈$8.0，本次后 ≤$13.9，总上限 $25。app 名 `a8rc-rc3-20261001`。
+
+## 7. RC-3 结果（H100!:2，app a8rc-rc3-20261001，ap-oIESN9NqLdg8NlstMLu6FJ，04:51:35–≈05:20Z，≈$3.8；证据 `rc3-h100/`，判读 `rc3-h100/RESULT_deep.json`、`cross_run_bitwise.txt`）
+- **G4 差异没有出现**：dA1 对 dBc（DP1 对 DP2，同一 C1）梯度相对 L2 6.3e-10、update 4.4e-10（仅 255/1000万 exp_avg 元素不同）；8 个有梯度的样本在 DP1、DP2（含 rank1）上的 loss 输入（old log-probs、优势、mask、长度、rewards）、loss、metrics、logits 前向行校验和、logits 梯度行校验和、forward-only 通道记录、训练前向/反传记录、wgrad 全部逐位相同（wgrad 只有 layer 27 个别次正规数伪差）。
+- 交换物理 GPU 后（`gpus_swapped.txt`：Ray 逻辑 GPU0=物理 UUID 5e67…）：dSaX 对 dA1、dSbX 对 dBc 步 3 状态**逐位相同**，rank 与物理 GPU 的对应互换对结果无影响。
+- **跨运行比特比较（`cross_run_bitwise.txt`）**：A8 的 A1_s2/A1_s3 与 RC-2 的 rcA1、RC-3 的 dA1 逐位相同（DP1 完全稳定）；A8 的 B1_s3（DP2，从 C1 恢复）与 RC-2 的 rcBc_s3 **逐位相同**（两个独立容器、不同物理 GPU），但与 RC-3 的 dBc_s3 不同。⇒ DP2 的"坏模式"（0.83%）是确定性的、可跨容器复现的，不是硬件抽签；RC-3 的 DP2 处于"好模式"（与 DP1 一致到 1e-10）。
+- RC-3 与 A8/RC-2 的区别（仅有这些）：(a) RC-3 的探针更重（forward-only 通道钩子、loss 包装与 logits 钩子、D2H 拷贝）；(b) RC-3 的 DP2 恢复 arm 之前没有跑过"DP2 从头训练"arm（A8：A1、A2、B1…；RC-2：rcA1、rcA2、rcBc…；A10G 的 RC-1d：A1、Bc… 也没有）；(c) 物理 GPU 实例不同（但 RC-2 与 A8 也不同却结果逐位相同）。
+- 解释 (b)：每个 arm 是新的 learner 进程、新的 Ray actor（`MilesBackend.start_arm` 每次 `create_rollout_components`+`create_training_models`，`stop_arm` 经 `Disposer` 释放；`miles_backend.py`）；跨 arm 共享的只有：同一 Ray 集群（GCS/raylet/对象存储）、文件系统（cuts、frozen、各类 JIT/编译缓存）、GPU 与驱动。主 agent 提出的"状态从上一个 arm 泄漏到下一个"假设在此框架下对应：Ray 集群/文件缓存/GPU 残留；本批用对照检验。
+
+## 8. RC-4：二分"坏模式"的触发因素（运行前登记；总费用上限已由主 agent 放宽到 $30）
+- 目的：区分 (i) 探针（RC-3 的重探针把坏模式盖住了）、(ii) 此前跑过 DP2 从头训练 arm（跨 arm 状态）、(iii) Ray 集群级状态、(iv) stream/时序竞争。**只比较状态**（探针极少），每个 DP2 arm 都从 C1 重分片恢复、训练步 3，对 DP1 参照 eA1 比较。
+- arm 与进程语义（全部是新 learner 进程、新 Ray actor；只有"Ray"一列不同）：
+  | arm | DP | 探针 | 之前是否跑过 DP2 从头训练（eA2） | Ray 集群 |
+  |---|---|---|---|---|
+  | eA1 | 1 从头→C1，步 1–3 | 无 | 否 | 容器启动时的集群 |
+  | eP0 | 2，恢复 C1 | 无 | 否 | 同集群 |
+  | eA2 | 2 从头→C2，步 1–3 | 无 | — | 同集群 |
+  | eP0b | 2，恢复 C1 | 无 | 是 | 同集群（eA2 用过） |
+  | eP3 | 2，恢复 C1 | 仅 loss 包装（RC-3 探针中最可能扰动者：包装 `get_loss_function`、logits 钩子、行校验和 `.cpu()`；不装模型钩子、不存 wgrad、不存大张量） | 是 | 同集群 |
+  | eP0r | 2，恢复 C1 | 无 | 是 | **`ray stop`+`ray start` 之后的新集群**（文件系统缓存与 GPU 仍同） |
+  | eCLB | 2，恢复 C1 | 无 | 是 | 再次重启 Ray，并 `CUDA_LAUNCH_BLOCKING=1`（所有 CUDA 调用同步，排除 stream/时序竞争） |
+- 预先声明的判读（"坏"=相对 DP1 梯度相对 L2 ≥ 3e-3；"好"=≤ 1e-6；同时报告是否与 A8 的 B1_s3（坏模式参照）或 RC-3 的 dBc_s3（好模式参照）逐位相同）：
+  1. eP0 坏 ⇒ 不需要先跑 eA2；RC-3 的好模式由探针造成（再看 eP3 是否仍坏）。eP0 好、eP0b 坏 ⇒ **跨 arm 状态**（eA2 之后才出现）：再看 eP0r：坏 ⇒ 状态在集群之外（文件缓存/GPU/驱动）；好 ⇒ 状态在 Ray 集群内（对象存储/GCS/预热 worker 等）。eP0、eP0b 都好 ⇒ A8/RC-2 的坏模式不可由本批复现，转为排查"同一次运行内 A2 之前的 arm 序列"（本批不覆盖，另议）。
+  2. eP3 好、eP0b 坏 ⇒ loss 包装（RC-3 的探针）扰动了坏模式，坏模式依赖 loss 路径的内存/时序细节；eP3 坏 ⇒ 探针不是掩盖因素。
+  3. eCLB 好、eP0r 坏 ⇒ stream/时序竞争（同步化后消失）；eCLB 也坏 ⇒ 不是 launch 时序，是确定性的内存布局/分配器历史/缓存状态。
+- 如确认是泄漏：再追到具体状态（缓存键、buffer、分配器），修复并加回归测试（另行登记）。
+- 平台与费用：Modal `H100!:2`（断言 H100 80GB HBM3）；硬超时 3000 s，新 arm 最迟 2100 s，watchdog 3300 s；预估 $5–5.5，上限 $6.6；累计已花 ≈$11.8，本次后 ≤$18.4，总上限 $30。app 名 `a8rc-rc4-20261001`。

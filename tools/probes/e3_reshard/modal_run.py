@@ -47,6 +47,10 @@ PROFILES = {
     # RC-3: only the deciding pair with the deep probe, then the restore arms after swapping the GPU order for Ray
     "a8rc-h100b": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 2700, "deterministic": True,
                    "arms": ("dA1", "dBc", "dSaX", "dSbX"), "arm_deadline_s": 1800, "swap_gpus_before": "dSaX"},
+    # RC-4: bisection of the factor that flips the DP2 numerics (states only); eCLB runs with CUDA_LAUNCH_BLOCKING=1
+    "a8rc-h100c": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 3000, "deterministic": True,
+                   "arms": ("eA1", "eP0", "eA2", "eP0b", "eP3", "eP0r", "eCLB"), "arm_deadline_s": 2100,
+                   "env_restart_before": {"eP0r": "", "eCLB": "CUDA_LAUNCH_BLOCKING=1"}},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -56,9 +60,10 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = list(OVERRIDES["dev-gather"])
+OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = OVERRIDES["a8rc-h100c"] = list(OVERRIDES["dev-gather"])
 REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",),
-                 "a8rc-h100": ("--deterministic-mode",), "a8rc-h100b": ("--deterministic-mode",)}
+                 "a8rc-h100": ("--deterministic-mode",), "a8rc-h100b": ("--deterministic-mode",),
+                 "a8rc-h100c": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 
@@ -155,6 +160,13 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
                     "ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9",
                     f"nvidia-smi -L | tee {work}/gpus_swapped.txt",
                     f'python /yeto/tools/probes/e3_reshard/gpu_map.py | tee -a {work}/gpus_swapped.txt',
+                ]
+            if arm in p.get("env_restart_before", {}):
+                lines += [
+                    f'progress "restart Ray ({p["env_restart_before"][arm] or "plain"})"',
+                    "ray stop --force > /dev/null 2>&1; sleep 5",
+                    *([f"export {p['env_restart_before'][arm]}"] if p["env_restart_before"][arm] else []),
+                    "ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9",
                 ]
             lines += [f'if [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
                       f'else run_phase {arm} "--phase arm --arm {arm}"; fi']
