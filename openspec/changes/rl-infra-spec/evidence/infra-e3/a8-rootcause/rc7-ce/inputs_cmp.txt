@@ -1,0 +1,23 @@
+== DP1 step2: RC-3 dA1 (ref class) vs RC-5a gA1d (X): mbs 16 vs 16
+  small.advantages: equal in 16/16 micro batches
+  small.log_probs: equal in 0/16 micro batches
+  small.logit_grad_row_abs: equal in 8/16 micro batches
+  small.logit_grad_row_bits: equal in 6/16 micro batches
+  small.logits_row_bits: equal in 16/16 micro batches
+  small.loss: equal in 16/16 micro batches
+  small.loss_masks: equal in 16/16 micro batches
+  small.loss_metrics: equal in 0/16 micro batches
+  small.response_lengths: equal in 16/16 micro batches
+  small.sample_indices: equal in 0/16 micro batches
+  small.total_lengths: equal in 16/16 micro batches
+  records (common keys 81616; only-a 0; only-b 0): {'|fwd|': '27040/27040 equal', '<root-input>': '32/32 equal', '|bwd_in|': '20000/27152 equal', '|bwd_out|': '18098/26864 equal', 'fo <root-input>': '32/32 equal', 'fo |fwd|': '496/496 equal'}
+  first differing record keys: ['0|c0.module.module.decoder.final_layernorm|bwd_in|0', '0|c0.module.module.decoder.final_layernorm|bwd_out|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_in|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_out|0', '0|c0.module.module.decoder.layers.0.mlp.linear_fc1.adapter.adapter_gate.linear_out|bwd_out|0']
+== DP1 step2: RC-2 rcA1 (ref) vs RC-5a gA1d (X): mbs 0 vs 16
+  records (common keys 81072; only-a 0; only-b 544): {'<root-input>': '32/32 equal', '|bwd_in|': '20000/27152 equal', '|bwd_out|': '18098/26864 equal', '|fwd|': '27024/27024 equal'}
+  first differing record keys: ['0|c0.module.module.decoder.final_layernorm|bwd_in|0', '0|c0.module.module.decoder.final_layernorm|bwd_out|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_in|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_out|0', '0|c0.module.module.decoder.layers.0.mlp.linear_fc1.adapter.adapter_gate.linear_out|bwd_out|0']
+== DP2 rank0 step2: RC-2 rcA2 (B1 class) vs RC-5a gA2d (X): mbs 0 vs 8
+  records (common keys 40536; only-a 0; only-b 272): {'<root-input>': '16/16 equal', '|bwd_in|': '10000/13576 equal', '|bwd_out|': '9049/13432 equal', '|fwd|': '13512/13512 equal'}
+  first differing record keys: ['0|c0.module.module.decoder.final_layernorm|bwd_in|0', '0|c0.module.module.decoder.final_layernorm|bwd_out|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_in|0', '0|c0.module.module.decoder.layers.0.cross_attention|bwd_out|0', '0|c0.module.module.decoder.layers.0.mlp.linear_fc1.adapter.adapter_gate.linear_out|bwd_out|0']
+== DP2 rank1 step2: RC-2 rcA2 (B1 class) vs RC-5a gA2d (X): mbs 0 vs 8
+  records (common keys 40536; only-a 0; only-b 272): {'<root-input>': '16/16 equal', '|bwd_in|': '13576/13576 equal', '|bwd_out|': '13432/13432 equal', '|fwd|': '13512/13512 equal'}
+  first differing record keys: []

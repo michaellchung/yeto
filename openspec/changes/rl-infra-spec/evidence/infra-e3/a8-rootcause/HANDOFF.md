@@ -1,10 +1,10 @@
-# A8 G4 根因调查 交接（INFRA-E3，2026-10-01 07:20Z 更新；到 RC-6/6b 为止；接手者请先读完本文件**§7**（最新）再读 §1–§6 与 plan.md）
+# A8 G4 根因调查 交接（INFRA-E3，2026-10-01 07:55Z 更新；到 RC-7/7b 为止；接手者请先读完本文件**§8**（最新，覆盖 §1/§4/§7 中与之冲突的说法）再读 §1–§7 与 plan.md §12–§13）
 
 分支 `infra-e3`（worktree `/home/michael/work/infra-e3`），远端 `origin/infra-e3`。证据目录：`openspec/changes/rl-infra-spec/evidence/infra-e3/a8-rootcause/`（下文路径都相对于它，除非写绝对路径）。**tasks.md 的 4.6 勾选状态未改，4.7/4.8 未降级**，progress.md 仅追加记录。用户要求：不得按"合法否定结论"勾 4.6，必须查明根因属于 (1) 正常跨 DP 数值差异 (2) 切换实现缺陷 (3) 验收标准不合理；"bf16 精度低""loss 相同"不算根因。GPU 规则：只用 Modal（或经批准的 Nebius），固定型号并断言；本任务总上限 **$30**（用户已放宽），单次 ≤$8；每次运行前先在 `/home/michael/work/infra-drafts/gpu-spend.md` 记一行、把计划写进 plan.md 并提交、并向主 agent 报告；运行后报告结果；用完核对 `modal app list`（只管 `a8rc-` 前缀）。
 
 ## 1. 一句话现状
 - **切换实现没有缺陷**（逐位证据，三次运行）；**DP1 对 DP2 的数学/归约没有问题**（同一主机上两者在 1e-10 量级一致）；A8 的 G4 失败来自**依赖具体 Modal 主机/GPU 实例的、确定性的反传数值差异，起点在 loss→logits 的梯度（forward 逐位相同）**。为什么某些主机会这样、具体是哪个算子/代码路径，**尚未查明**。因此目前既不是 (1) 正常跨 DP 数值差异，也不是 (2) 切换缺陷，(3) 判据不合理也没有证据支持——更像第四类：环境/主机相关的数值不一致（需要把它收敛到具体算子并做因果验证）。
-- 费用：本任务累计 ≈ **$20.2**（上限 $30；剩余 ≈ $9.8，建议留 ≥$4 给修复验证）。逐次见 §3。无任何在跑的云资源（核对：`modal app list` 里 a8rc-rc1/rc1b/rc1c/rc1d/rc2/rc3/rc4/rc5a 均 stopped；无 watchdog 进程）。
+- 费用：（截至 RC-5a）本任务累计 ≈ $20.2；**最新累计见 §8（≈$28.0，上限 $30，已无预算再起运行）**。逐次见 §3。无任何在跑的云资源（核对：`modal app list` 里 a8rc-rc1/rc1b/rc1c/rc1d/rc2/rc3/rc4/rc5a 均 stopped；无 watchdog 进程）。
 
 ## 2. 已证实 / 已排除（每条附证据）
 已证实：
@@ -69,3 +69,14 @@
 - **局限**：孤立单链、合成输入，不含整网环境（显存布局、上游 kernel 产出的输入、Ray 多进程），也不能与坏模式校验和直接比（真实 logits 没存，只有校验和与少数完整 logits 梯度张量）。所以"这条链主机无关"成立，"整网里为什么某些主机的 loss→logits 梯度不同"没有回答。
 - **剩余可能性与建议的下一步（需要新登记，约 $4–5，我的剩余预算够做 1 轮）**：差异的首个已测位置是 logits 梯度，但**CE 反传的输入没有被单独记录过**。建议在真实训练里给 `fused_cross_entropy.calculate_gradients` 打 monkeypatch 探针（在 `rc_trace.py` 的 `install_trace` 里）：记录 (softmax/exp_logits, grad_output, target_mask, masked_target_1d) 的 sha256 和输出的 sha256，并在同一进程里用同一输入再算一次（编译版 + eager 版）比较；再用 `gate.py` 的"与参照 DP1 的 exp_avg 差"在新容器里抽主机（RC-2/RC-5a 说明约 3/5 的主机与参照不同，命中率不低）。判读：同输入重算与原输出逐位相同且 exp_logits 或 grad_output 在"坏/不同"主机上与"参照一致"主机上不同 ⇒ 差异在上游（forward 的 softmax 张量或 loss 反传），不在 CE 反传 kernel；同输入重算不同 ⇒ kernel/硬件非确定性。同时记录 forward 保存的 `exp_logits`（softmax）校验和——它在 loss 逐位相同时仍可能不同（loss 不依赖除法之后的 exp_logits），这是目前唯一"前向张量没被比较过"的缺口。
 - 修复尚未落地（根因未确认，没有可修的对象）；没有推 fork、没有改 pin。若主 agent 想先做保守缓解，唯一已有因果依据的开关是"编译 vs eager 是不同计算"这一点，但**没有证据表明关闭 compile 会消除跨主机差异**，不建议在无验证时当作修复写进 profile。
+
+## 8. 第三轮：RC-7 / RC-7b + 两项离线核查（2026-10-01 07:21–07:55Z；最新状态以本节为准）
+- **费用**：RC-7（3 台）≈$3.1，RC-7b（2 台）≈$2.1，本轮 ≈ $5.2（上限 $7）；本任务累计 ≈ **$28.0**（上限 $30，剩余 ≈ $2，不足以再做有意义的两台抽样，只够 1 台 ≈$1.2 的单机实验）。所有 `a8rc-` app（ce1–3、cf1–2 及此前全部）均 stopped，无 watchdog/launcher 进程。台账 `/home/michael/work/infra-drafts/gpu-spend.md` 已追加（每次启动前一行、回填一行）。
+- **做了什么**（计划与判读规则在运行前提交：plan §12 提交 60011da，§13 提交 f02394a）：在真实训练（gate 臂 DP2 从 0 训 2 步）里给 Megatron 融合 CE 的四个 `jit_fuser` 函数打只读探针（`rc_trace.install_trace(ce_probe=True)`，`tests/test_rl_e3_ce_probe.py`，`ce_compare.py`）：前向各阶段与 `calculate_gradients` 的输入/输出校验和；反传前克隆输入，同一进程内用同一输入再用编译函数、eager 各重算一次并比较；每 rank 保存 1 组完整输入输出。批 1：3 台新 H100!:2；批 2（RC-7b）：2 台，A 臂配置（`cut_at_step2`、`last_step=3`，同 RC-4 的 eA2）+ 同探针。
+- **结果**（plan §12.5、§13.2）：5 台主机的 gate 都是 1.255e-2，exp_avg 与 RC-5a 的 `gA2_s2` **逐位相同**（"类 X"，加上 RC-5a 共 6 台、4 种 vbios、2 种 CPU 型号）；探针对该类无影响。X 模式内部是确定的：5 台之间 CE 前向 10 个阶段、反传 5 个字段、保存的完整张量（softmax_in/grad_output/out）逐位相同；同机同输入重算（编译、eager）与原输出逐位相同。按预登记规则 6：**没有 state 不同的主机对，未能在 CE 层面定位 good/bad 分歧阶段**。
+- **配置因素被排除**（RC-7b）：A 臂配置在当前主机上同样是类 X；离线核查（plan §13.1）：所有 arm 的 Miles argv/超参逐项相同（`--num-rollout 8`、lr 1e-5 linear、decay-iters 8…），实际应用的 lr 相同（1e-5/8.75e-6/7.5e-6），scheduler/hyper/step/counters 摘要相同；步 1 的 grad_norm 全 0，步 2 的 grad_norm 三类各不同。
+- **离线核查 II 的新发现**（plan §13.3，`rc7-ce/inputs_cmp.txt`、`logp.txt`）：ref 类(RC-3 dA1) 对 类 X(RC-5a gA1d) 的步 2：token/mask/advantage/长度/pg loss/所有模块前向输出（含 logits，训练与 forward-only 两个通道）**逐位相同**；但 **old log-prob（`log_probs`）在 16/16 微批不同**（2609 个 token 里 1455 个，最大绝对差 9.5e-7，几个 ulp），因此差异的位置是 **logits→log-prob 的融合 CE 前向**本身，而不是 CE 反传 kernel；这修正了此前"前向逐位相同"的说法（逐位相同的是 logits 和 pg loss）。另外 B1 类（A8/RC-2）的 rank1 与 X 类的 rank1 全部记录逐位相同，rank0 与 ref 相同——**模式 R/X 是按进程（rank）分配的**，不是按主机、配置或数据；时间上 A8/RC-2/3/4 以 R 为主，RC-5a 起 6 台全 X。s1 状态没有 dump，无法直接比较（间接证据见 plan §13.3）。
+- **结论（如实）**：**主机/进程相关的数值差异，具体机制未查明；切换实现已证实无缺陷**；差异的最早已知位置收敛到融合 CE 前向（logits 逐位相同、log-prob 不同），不是反传 kernel、不是数据、不是超参、不是臂配置、不是 H1（autotune，RC-6）。**R 模式从未在受控条件下复现**，所以 RC-6 的孤立链结论只对 X 模式成立。
+- **剩余方向与最小下一步**：见 plan §13.4（Triton kernel 对齐/向量化特化、编译缓存共享、时期性主机环境变化）。建议的最小实验（≈$1，单机）：在 X 模式主机上用受控的 pointer/size 对齐（如 logits 切片偏移）看能否制造出 R 模式，并取出 `triton_red_fused_..._sum` 的 kernel 元信息比对；需要先预注册并经用户确认，预算已几乎用尽。
+- **对 4.6/4.7/4.8 的建议**：不改 tasks.md 勾选，不降级 4.7/4.8（状态由用户决策）；不应以"bf16 精度低"收尾；A8 的 G4 比较在 R 模式的 DP1 与 X 模式的 rank 之间不对等（同一代码给出两种数值模式），若要收尾需要用户决定：(i) 继续查明 R/X 选择机制并修复/钉死（例如固定到一种模式后重跑 A8 的 G4），或 (ii) 另行预注册"同模式基线"的判据（同模式内 DP1 对 DP2 在 1e-10，远低于 0.1%/99.9% 门槛），不得为通过而放宽现有判据。
+- 其它：本轮提交 60011da、f02394a、981d8e0 及本节提交；未推 main、未强推、未提 PR、未改 pin；本地大数据在 `/home/michael/work/infra-e3-gpu/a8rc/out-a8rc-{ce1,ce2,ce3,cf1,cf2}-20261001/`（`work/packed/` 含 trace 与完整张量；`go7.sh`/`go7b.sh` 为本轮启动脚本，快照 `yeto-rc7`、`yeto-rc7b`）。

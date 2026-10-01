@@ -1,0 +1,2 @@
+cf1 {'A8_A2_s2(B1)': '1.225e-02', 'RC4_eA2_s2(good)': '1.255e-02', 'RC5a_gA2_s2(X)': 'BITWISE', 'A8_A1_s2(ref)': '1.255e-02'}
+cf2 {'A8_A2_s2(B1)': '1.225e-02', 'RC4_eA2_s2(good)': '1.255e-02', 'RC5a_gA2_s2(X)': 'BITWISE', 'A8_A1_s2(ref)': '1.255e-02'}

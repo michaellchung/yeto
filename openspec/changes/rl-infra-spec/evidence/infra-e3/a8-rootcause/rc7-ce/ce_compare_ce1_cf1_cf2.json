@@ -1,0 +1,396 @@
+{
+ "hosts": {
+  "ce1": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "f6cca840-c7ad-069b-41f1-a682d7f6ace4",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "2362f43c-ce87-108b-aca5-86bd86d0860d",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  },
+  "cf1": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "b24fb72d-eb59-dc8a-d964-553c026771f7",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "275b5ab3-dbef-03f8-eff7-89e0a8d3137f",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  },
+  "cf2": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "fa112feb-adac-d864-729d-bed038b84a3b",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "8ea6da61-3a8b-9f96-ebb3-c64a43ca9293",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  }
+ },
+ "pairs": {
+  "ce1__cf1": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   }
+  },
+  "ce1__cf2": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   }
+  },
+  "cf1__cf2": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {}
+   }
+  }
+ }
+}
