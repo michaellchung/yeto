@@ -51,3 +51,8 @@
 - Modal 对 `A10G:2` 这次分配到 `NVIDIA A10`（driver 580.95.05；第 1 次是 `NVIDIA A10G`），按断言（只接受 A10G）容器在第一步 exit 3，未进入任何阶段（`rc1b-refused/`）。
 - 处理：A10G 与 A10 都是 24 GB 的 GA102，a8rc 的全部 arm 在同一容器内、同一型号上运行，比较只在运行内部做；断言改为"两张卡都在 {A10G, A10} 内，且两张型号相同"，实际型号写入 gpus.txt。其余不变。若与 H100 比较量级需注意卡型号不同，结论里会如实写明。
 - 第 3 次运行 app 名 `a8rc-rc1c-20261001`，预估 ≈$2，上限 $4；累计预估 0.8+2=2.8。
+## 2d. RC-1 第 3 次尝试（a8rc-rc1c，ap-GtogZn2BdNWd2a64kNBuBQ，02:21:32 提交、02:44 起在 A10G:2 上运行，03:04:27Z 被停，≈$0.75）：被我自己遗留的 watchdog 误停，无结论
+- 现象：app 在 03:04:27Z 被 stop（modal 显示操作者为本账号），此时 gen、rcA1（含探针 dump，rc=0）已完成、rcBc 进行中；容器被终止，没有 pack，未取回任何状态。`watchdog.log`：第 1 次运行遗留的 watchdog 于 03:03:53Z 触发。
+- 原因：第 1 次运行起的 watchdog（sleep 5700 s）读的是共享路径 `a8rc/out/resources.txt`，而第 2、3 次运行把输出目录复用为同一路径；第 1 次的 watchdog 到点后按该文件里**第 3 次运行**的 app id 执行了 `modal app stop`。这是我的运行脚本缺陷，不是 yeto 或探针问题；没有影响任何其他 agent 的 app（只停了 a8rc- 前缀的我自己的 app）。
+- 修复：每次运行用独立输出目录 `out-<app>`，watchdog 只读自己那次的 resources.txt，运行结束时主动杀掉自己的 watchdog；已确认当前无遗留 watchdog 进程。
+- 第 4 次运行 app 名 `a8rc-rc1d-20261001`，其余（代码、arm、判读、复现判据）不变；预估 ≈$2，上限 $4；本任务累计预估：0.8+0+0.75+2 ≈ 3.6。
