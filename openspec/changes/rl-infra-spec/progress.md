@@ -627,3 +627,9 @@
 - 未解：为什么特定主机的 loss→logits 梯度（Megatron `fused_cross_entropy` 的 torch.compile 内核，或 GPU 实例差异）位级不同；下一步见 HANDOFF.md §4。
 - 费用：本任务累计 ≈ $20.2（上限 $30；台账 `/home/michael/work/infra-drafts/gpu-spend.md`）；所有 a8rc- 前缀 Modal app 均 stopped，无 watchdog 进程。
 - 待批准/决策：4.6/4.7/4.8 的最终状态与是否另行预注册判据，须等根因与因果验证完成后由用户决策（见 HANDOFF.md §6）。
+
+### INFRA-E3 A8 G4 根因调查：后半程 RC-6/RC-6b（2026-10-01 07:20Z；详见 a8-rootcause/HANDOFF.md §7、plan.md §10–§11）
+- 状态：4.6 勾选未改，4.7/4.8 未降级；**根因仍未确认**。已排除 H1：fused CE + `compute_policy_loss` 的 torch.compile 链在 4 台 H100 主机（8 GPU）、独立 rank 进程、冷编译、autotune 开/关/固定缓存下输出逐位相同（孤立单链、合成输入，局限见 plan §11.1）。
+- 费用：RC-6 ≈$0.8 + RC-6b ≈$1.8；本任务累计 ≈$22.8（上限 $30）；a8rc-k1..k4 均 stopped，无残留进程。
+- 提交：e8f7017、af5b790、20626c1、263fbdd 及本记录提交；分支 infra-e3；未推 fork、未改 pin。
+- 下一步（待主 agent 决定）：真实训练内 `calculate_gradients` 输入/输出探针 + 抽主机（HANDOFF §7）。

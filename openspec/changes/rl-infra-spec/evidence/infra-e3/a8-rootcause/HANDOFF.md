@@ -1,4 +1,4 @@
-# A8 G4 根因调查 交接（INFRA-E3，2026-10-01 06:45Z；到 RC-5 第 1 次为止；接手者请先读完本文件再读 plan.md）
+# A8 G4 根因调查 交接（INFRA-E3，2026-10-01 07:20Z 更新；到 RC-6/6b 为止；接手者请先读完本文件**§7**（最新）再读 §1–§6 与 plan.md）
 
 分支 `infra-e3`（worktree `/home/michael/work/infra-e3`），远端 `origin/infra-e3`。证据目录：`openspec/changes/rl-infra-spec/evidence/infra-e3/a8-rootcause/`（下文路径都相对于它，除非写绝对路径）。**tasks.md 的 4.6 勾选状态未改，4.7/4.8 未降级**，progress.md 仅追加记录。用户要求：不得按"合法否定结论"勾 4.6，必须查明根因属于 (1) 正常跨 DP 数值差异 (2) 切换实现缺陷 (3) 验收标准不合理；"bf16 精度低""loss 相同"不算根因。GPU 规则：只用 Modal（或经批准的 Nebius），固定型号并断言；本任务总上限 **$30**（用户已放宽），单次 ≤$8；每次运行前先在 `/home/michael/work/infra-drafts/gpu-spend.md` 记一行、把计划写进 plan.md 并提交、并向主 agent 报告；运行后报告结果；用完核对 `modal app list`（只管 `a8rc-` 前缀）。
 
@@ -61,3 +61,11 @@
 - 判据本身：同一主机上 DP1 对 DP2 为 6e-10，远低于 0.1%/99.9% 的门槛，门槛本身不是问题；问题是某些主机上同一计算给出不同位。
 - 不要改 tasks.md 4.6 的勾选；对 4.6/4.7/4.8 的建议：目前**不应**按"bf16 精度低"收尾；等 §4 的 1–3 步给出算子级根因与因果验证后，再决定是修复（并复测 A8）还是另行预注册判据。
 - 约束：不向 radixark/miles、sgl-project/sglang 提 PR；不推 main、不强推；GPU 运行前后向主 agent 报告；任何阶段性结果先写入 plan.md 并提交。
+
+## 7. RC-6 / RC-6b（后半程接手，2026-10-01 06:54–07:07Z；最新状态以本节为准，覆盖 §4 的"下一步"）
+- **费用**：RC-6 ≈$0.8，RC-6b ≈$1.8，本任务累计 ≈ **$22.8**（上限 $30；本接手段剩余 ≈ $7.2，$10 的接手上限里已用 ≈ $2.6）。所有 `a8rc-` app（含 k1–k4）stopped，无 watchdog/launcher 进程；台账已追加。
+- **静态核查（plan §10.0）**：Miles `compute_log_probs` 无条件走 Megatron `fused_vocab_parallel_cross_entropy`（`jit_fuser = torch.compile`，无人禁用；Megatron 的 deterministic-mode 对它无效）；torch 2.13 默认 pointwise 做 ≥2 个 config 的计时 autotune；Inductor/Triton 缓存默认在同一容器内被两个 rank 与所有 arm 共享。
+- **因果检验（plan §10–§11，`tools/probes/e3_reshard/kernel_probe*.py`，`tests/test_rl_e3_kernel_probe.py`）**：每个 rank 一个独立进程、冷编译、两个进程首个形状不同；链 = fp32 logits → fused CE → `compute_policy_loss` → backward；4 台 H100 主机（8 张 GPU）× 变体 (a) 现状 ×3、(b) 关闭全部 torch.compile、(c1) 关 autotune ×2、(c2) 固定缓存：每个样本的 loss、logp、grad_output、logits 梯度的 sha256 **全部逐位相同**（(a)=(c1)=(c2)；(b) 自身一致但与编译路径不同——编译与 eager 本来就不是同一计算）。autotune 选择确实会变（softmax 除法 kernel 8 对 4 warps）而数值不变；reduction kernel 单一 config。⇒ **H1（计时 autotune / 跨主机选出不同数值 kernel）被排除**（在这条链上），**根因仍未确认**，4.6/4.7/4.8 状态不变。
+- **局限**：孤立单链、合成输入，不含整网环境（显存布局、上游 kernel 产出的输入、Ray 多进程），也不能与坏模式校验和直接比（真实 logits 没存，只有校验和与少数完整 logits 梯度张量）。所以"这条链主机无关"成立，"整网里为什么某些主机的 loss→logits 梯度不同"没有回答。
+- **剩余可能性与建议的下一步（需要新登记，约 $4–5，我的剩余预算够做 1 轮）**：差异的首个已测位置是 logits 梯度，但**CE 反传的输入没有被单独记录过**。建议在真实训练里给 `fused_cross_entropy.calculate_gradients` 打 monkeypatch 探针（在 `rc_trace.py` 的 `install_trace` 里）：记录 (softmax/exp_logits, grad_output, target_mask, masked_target_1d) 的 sha256 和输出的 sha256，并在同一进程里用同一输入再算一次（编译版 + eager 版）比较；再用 `gate.py` 的"与参照 DP1 的 exp_avg 差"在新容器里抽主机（RC-2/RC-5a 说明约 3/5 的主机与参照不同，命中率不低）。判读：同输入重算与原输出逐位相同且 exp_logits 或 grad_output 在"坏/不同"主机上与"参照一致"主机上不同 ⇒ 差异在上游（forward 的 softmax 张量或 loss 反传），不在 CE 反传 kernel；同输入重算不同 ⇒ kernel/硬件非确定性。同时记录 forward 保存的 `exp_logits`（softmax）校验和——它在 loss 逐位相同时仍可能不同（loss 不依赖除法之后的 exp_logits），这是目前唯一"前向张量没被比较过"的缺口。
+- 修复尚未落地（根因未确认，没有可修的对象）；没有推 fork、没有改 pin。若主 agent 想先做保守缓解，唯一已有因果依据的开关是"编译 vs eager 是不同计算"这一点，但**没有证据表明关闭 compile 会消除跨主机差异**，不建议在无验证时当作修复写进 profile。
