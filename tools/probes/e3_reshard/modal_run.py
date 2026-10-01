@@ -39,7 +39,7 @@ PROFILES = {
     "dev-gather": {"gpu": "A10G:2", "expect": ("NVIDIA A10G", "NVIDIA A10"), "timeout": 5400, "deterministic": False},
     "a8": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 7200, "deterministic": True},
     # a8-rootcause (evidence/infra-e3/a8-rootcause/plan.md): same-start controls + trace on a cheap card
-    "a8rc": {"gpu": "A10G:2", "expect": ("NVIDIA A10G",), "timeout": 5400, "deterministic": True,
+    "a8rc": {"gpu": "A10G:2", "expect": ("NVIDIA A10G", "NVIDIA A10"), "timeout": 5400, "deterministic": True,
              "arms": ("rcA1", "rcBc", "rcSa", "rcSb", "rcDd")},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
@@ -123,7 +123,8 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         # A8 stays strict. The actual name and driver are in gpus.txt.
         "n=$(grep -c . {w}/gpus.txt); bad=$(grep -vcE '^({names}),' {w}/gpus.txt || true)".format(
             w=work, names="|".join(p["expect"])),
-        'if [ "$n" != 2 ] || [ "$bad" != 0 ]; then echo "GPU assertion failed"; exit 3; fi',
+        'kinds=$(cut -d, -f1 {w}/gpus.txt | sort -u | wc -l)'.format(w=work),
+        'if [ "$n" != 2 ] || [ "$bad" != 0 ] || [ "$kinds" != 1 ]; then echo "GPU assertion failed"; exit 3; fi',
         f"test \"$(git --git-dir=/root/miles/.git rev-parse HEAD)\" = {MILES_COMMIT} || {{ echo 'miles pin mismatch'; exit 4; }}",
         f"PYTHONPATH=/root/miles:/yeto python -m yeto.rl.engine.runtime_manifest --image {IMAGE} "
         f"--out {work}/runtime_manifest.json || exit 8",
