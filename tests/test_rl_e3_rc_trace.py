@@ -72,3 +72,27 @@ def test_trace_is_deterministic_and_sensitive(tmp_path):
     rc_trace_dir = str(tmp_path / "c")
     c = torch.load(Path(_run(seed_shift=0.01)["path"]), weights_only=False)
     assert c["records"] != a["records"]
+
+
+def test_compare_rc_finds_the_first_differing_record_and_wgrad(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "probes" / "e3_reshard"))
+    import compare_rc
+
+    def rec(bits, l2=1.0):
+        return {"bits": bits, "l2": l2, "shape": (2,), "dtype": "bf16"}
+
+    base = {"0|m1|bwd_out|0": rec([1, 2]), "0|m2|bwd_out|0": rec([3, 4]), "0|m3|bwd_out|0": rec([5, 6]),
+            "0|m1|fwd|0": rec([7, 8])}
+    other = dict(base)
+    other["0|m2|bwd_out|0"] = rec([3, 5], 1.0001)
+    other["0|m3|bwd_out|0"] = rec([5, 7], 1.0001)
+    w = torch.tensor([1.0, 2.0], dtype=torch.bfloat16)
+    pa = {"records": base, "wgrad": {0: {"p": w}}}
+    pb = {"records": other, "wgrad": {0: {"p": w * 2}}}  # DP2 arm: exactly 2x
+    a = compare_rc.collect({0: pa}, {0: [11]})
+    b = compare_rc.collect({0: pb}, {0: [11]})
+    rep = compare_rc.trace_report(a, b)["11"]
+    assert rep["bwd_out"]["first"]["key"] == "m2|bwd_out|0" and rep["bwd_out"]["differ"] == 2
+    assert rep["fwd"]["differ"] == 0
+    assert compare_rc.wgrad_report(a, b, 1.0, 0.5)["per_sample"]["11"]["differ"] == 0
+    assert compare_rc.wgrad_report(a, b)["per_sample"]["11"]["differ"] == 1

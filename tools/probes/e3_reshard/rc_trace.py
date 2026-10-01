@@ -65,16 +65,16 @@ def _tensors(obj: Any) -> list[Any]:
 
 
 def _put(key: str, t: Any) -> None:
+    """Record now, on the host: the trainer offloads its GPU memory after the step (run RC-1: a deferred
+    ``.cpu()`` on checksums allocated during the step failed with CUDA 'invalid argument' at dump time)."""
     bits, norm = _checksum_bits(t)
-    _ST["pending"].append((key, bits, norm, tuple(t.shape), str(t.dtype)))
+    _ST["records"][key] = {"bits": [int(b) for b in bits.cpu().tolist()], "l2": float(norm.cpu()),
+                           "shape": tuple(t.shape), "dtype": str(t.dtype)}
 
 
 def _flush() -> dict[str, Any]:
-    out = {}
-    for key, bits, norm, shape, dtype in _ST["pending"]:
-        out[key] = {"bits": [int(b) for b in bits.cpu().tolist()], "l2": float(norm.cpu()), "shape": shape,
-                    "dtype": dtype}
-    _ST["pending"].clear()
+    out = dict(_ST["records"])
+    _ST["records"].clear()
     return out
 
 
@@ -85,7 +85,7 @@ def install_trace(actor: Any, *, save_mb: tuple = (0, 1), name_filter: str = r"d
 
     if _ST.get("handles"):
         return {"installed": False, "reason": "already installed"}
-    _ST.update({"pending": [], "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
+    _ST.update({"records": {}, "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
                 "filter": re.compile(name_filter), "handles": [], "save_wgrads": bool(save_wgrads), "names": []})
     handles = _ST["handles"]
     mod_count = 0
@@ -156,7 +156,7 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     import torch
 
     if not save:
-        _ST["pending"].clear()
+        _ST["records"].clear()
         _ST["tensors"].clear()
         _ST["wgrad"].clear()
         _ST["mb"] = -1

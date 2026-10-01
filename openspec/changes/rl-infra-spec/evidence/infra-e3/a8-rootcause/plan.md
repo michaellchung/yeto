@@ -40,3 +40,10 @@
 
 ## 3. 汇总（回填）
 运行完成后在 `rc1/` 与 `analysis.md` 回填；费用与 `modal app list` 核验写入 `/home/michael/work/infra-drafts/gpu-spend.md` 与 progress.md。
+
+## 2a. RC-1 第 1 次运行（a8rc-rc1-20261001，ap-lgopmjalnNAjtWA87DQ88w，01:28:58–01:49:37Z，A10G:2，≤$0.8）：未得结果，探针缺陷
+- dry、gen（9 min）通过；rcA1 在步 3 结束后 `rc_trace.dump_trace` 的 `bits.cpu()` 报 `CUDA error: invalid argument`，容器按设计 exit 7，pack 了 rcA1 的 s2/s3（无其余 arm），app 已 stop（`rc1a-failed/app_stopped.txt`）。训练步 1–3 在装了探针的情况下正常完成（探针不破坏训练）。
+- 原因（提出）：探针把逐记录的校验和先留在 GPU 上，到 dump 时才 `.cpu()`；Miles 的 offload_train 在每步结束后释放了该步分配的 GPU 内存，dump 时这些张量已失效。
+- 修复：`rc_trace._put` 在 hook 内当场转主机（提交见下），CPU 测试通过（`tests/test_rl_e3_rc_trace.py`）。判据、arm、判读规则、复现判据全部不变。
+## 2b. RC-1 第 2 次运行（登记）
+- app 名 `a8rc-rc1b-20261001`，其余同 §2（A10G:2、硬超时 5400 s、watchdog 5700 s、费用估计 ≈$2、上限 $4、单次上限 $8）。累计本任务 GPU 花费预估：0.8 + 2 = 2.8。
