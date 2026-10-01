@@ -183,3 +183,8 @@
   - 某台主机的变体 (a) 对 host 1 的 (a) 在任一样本任一字段不同 ⇒ **找到主机相关的编译路径数值差异**：按字段定位（loss/logp ⇒ 前向 kernel；grad_output ⇒ loss 反传；logit_grad ⇒ CE 反传），对照该主机内 (b)/(c1)/(c2) 与 host 1 的相应变体是否相等，并比对两台主机的 cubin sha/num_warps/triton 版本，得出根因；若该主机 (c1)/(c2) 与 host 1 相等而 (a) 不等 ⇒ autotune/缓存因果成立；若 (b) 与 host 1 (b) 相等而 (a)(c) 都不等 ⇒ 编译产物（Triton/ptxas/硬件）主机相关；若 (b) 也不等 ⇒ 硬件/库层。
   - 三台全部与 host 1 逐位相同 ⇒ 该探针覆盖的链（fused CE + `compute_policy_loss` 的编译 kernel）在 4 台主机上无主机相关性，**H1 被彻底排除**；根因在这条链之外（需要真实训练里的其它算子，例如 grad_output 的上游输入或 lm_head 的 dgrad 以外的路径），转为"未确认"并如实汇报，停止抽样。
 - 费用：每台 ≈ 6 min ≈ $0.8，合计 ≈ $2.4；每个 Sandbox 硬超时 `KPROBE_TIMEOUT_S=720`（每台上限 $1.6，合计上限 $4.7）；独立 watchdog 800 s；累计已花 ≈ $21.0，本批后 ≤ $25.7（上限 $30；任务剩余上限 $10 内）。
+
+### 11.1 RC-6b 结果（3 台并行，07:02–07:07Z，各 ≈4.6 min、≈$0.6，合计 ≈$1.8；证据 `rc6-k2/`、`rc6-k3/`、`rc6-k4/`；app a8rc-k2/k3/k4-20261001 均 stopped）
+- 4 台主机（k1 GPU e98f3a30/9cf118ea；k2 4d528074/a5136919；k3 a7f6c356/70e5ed9e；k4 090644fc/e5e509c3；全部 H100 80GB HBM3、驱动 580.95.05、triton 3.7.1、torch 2.13.0+cu130）× 4 个变体 × 每主机 15 个 worker：对 host 1 的参照（(b) 对 host 1 的 (b)），**8 个样本 × 4 个字段的差异计数全部为 0**。主机内 autotune 选出的 num_warps 集合每台都稳定一致；cubin 的 sha 在同一主机的不同冷编译之间都不稳定（k1 的 a_r0 与 a_r1 已不同），不能当指纹用，名称/num_warps 在四台主机上相同。
+- 判读（按 §11）：**三台与 host 1 全部逐位相同 ⇒ fused CE + `compute_policy_loss` 这条编译链在 4 台主机、8 张 GPU 上没有主机/GPU/rank/冷编译/autotune 相关性；H1 被排除。根因仍未确认。**
+- 局限（必须写明）：这是**孤立的单链测试**，输入是固定种子的合成 logits（不是训练里的 logits、old_logp、优势），也没有整网环境（显存布局、之前 kernel 产出的输入、Ray 多进程、真实 lm_head 输出）。因此它不能复现"整网里的主机差异"；也**不能与 RC-2/A8 的坏模式校验和直接比较**：坏模式的 loss→logits 梯度只有逐行校验和/少数样本的完整梯度张量（RC-5a 的样本 16、17、21，RC-2 无完整张量），真实输入 logits 没有保存，无法逐位重放。零成本核对：现有记录里 logits 前向只有校验和（`<logits>|fwd` 的 bits），没有张量，所以这条链无法用真实输入重放。
