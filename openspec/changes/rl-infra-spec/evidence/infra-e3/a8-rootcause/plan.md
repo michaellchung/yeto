@@ -176,3 +176,10 @@
 - autotune 选择确实会变：(a) 与 (c1) 的 cubin 集合里 `triton_poi_fused_copy__div_split_unsqueeze_1`（softmax 除法）的 num_warps 为 8 对 4；而输出逐位相同 ⇒ **pointwise 的 autotune 选择不影响数值**；关键的 reduction（`triton_red_fused_copy__exp_sub_sum_unsqueeze_2`、`triton_red_fused_max_0`）只有单一 config（16 warps，启发式而非计时选择），所有 worker 一致。
 - 变体 (b)（`TORCHDYNAMO_DISABLE=1`，融合 CE 与 loss 走 eager）：两个 worker 彼此逐位相同，但与 (a) 的编译路径 8 个样本全部不同（loss/logp/grad_output/logit_grad 都不同）——**编译路径与 eager 路径在数值上本来就不是同一计算**（预期内；说明如果某台主机走的是另一条路径，结果就会整体不同）。
 - 判读（按 §10.2）：**(a) 内无差异 ⇒ 本主机不暴露该机制；H1（计时 autotune 选出不同数值的 kernel）在本主机上被直接反证（autotune 选择变了、数值没变）**；不能据此排除"别的主机上编译路径本身不同"。按登记规则：剩余预算足够再抽主机（每台 ≈$0.8），见 §11。
+
+## 11. RC-6b：跨主机抽样（运行前登记）
+- 目的：用同一份探针（代码不变，`kernel_probe.py` 的 TS/PHASES 不变，使哈希可与 §10.3 直接比较）在另外 3 台 H100!:2 主机上各跑一遍完整 PHASES（含 (a)(b)(c1)(c2)），**并行**起 3 个 Sandbox（app `a8rc-k2/k3/k4-20261001`）。每台每个 worker 的哈希与 cubin 指纹与 host 1 比较。
+- 预先声明的判读：
+  - 某台主机的变体 (a) 对 host 1 的 (a) 在任一样本任一字段不同 ⇒ **找到主机相关的编译路径数值差异**：按字段定位（loss/logp ⇒ 前向 kernel；grad_output ⇒ loss 反传；logit_grad ⇒ CE 反传），对照该主机内 (b)/(c1)/(c2) 与 host 1 的相应变体是否相等，并比对两台主机的 cubin sha/num_warps/triton 版本，得出根因；若该主机 (c1)/(c2) 与 host 1 相等而 (a) 不等 ⇒ autotune/缓存因果成立；若 (b) 与 host 1 (b) 相等而 (a)(c) 都不等 ⇒ 编译产物（Triton/ptxas/硬件）主机相关；若 (b) 也不等 ⇒ 硬件/库层。
+  - 三台全部与 host 1 逐位相同 ⇒ 该探针覆盖的链（fused CE + `compute_policy_loss` 的编译 kernel）在 4 台主机上无主机相关性，**H1 被彻底排除**；根因在这条链之外（需要真实训练里的其它算子，例如 grad_output 的上游输入或 lm_head 的 dgrad 以外的路径），转为"未确认"并如实汇报，停止抽样。
+- 费用：每台 ≈ 6 min ≈ $0.8，合计 ≈ $2.4；每个 Sandbox 硬超时 `KPROBE_TIMEOUT_S=720`（每台上限 $1.6，合计上限 $4.7）；独立 watchdog 800 s；累计已花 ≈ $21.0，本批后 ≤ $25.7（上限 $30；任务剩余上限 $10 内）。
