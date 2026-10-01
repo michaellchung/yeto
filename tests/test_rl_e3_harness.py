@@ -639,3 +639,23 @@ def test_a8_determinism_env_equals_production_and_precedes_ray():
     script = modal_run.container_script("a8")
     assert script.index("export NCCL_ALGO=Ring") < script.index("ray start")
     assert "export NCCL_ALGO" not in modal_run.container_script("dev-gather")
+
+
+def test_rootcause_arms_run_on_the_fake_backend_with_trace(tmp_path, monkeypatch):
+    """a8-rootcause: the five RC arms (continuous, resharded restore, two standard same-shape restores,
+    reverse reshard) run in plan order on CPU and every one leaves a trace and a step-3 dump."""
+    import sys
+    from pathlib import Path
+
+    tools = Path(harness.__file__).resolve().parent
+    monkeypatch.syspath_prepend(str(tools))
+    arms = harness.RC_ARMS
+    assert [a.name for a in arms] == ["rcA1", "rcBc", "rcSa", "rcSb", "rcDd"]
+    assert [(a.dp, a.restore, a.standard) for a in arms] == [
+        (1, None, False), (2, "C1", False), (1, "C1", True), (2, "C1p", True), (1, "C1p", False)]
+    dirs = harness.run_all(lambda arm: FakeBackend(), tmp_path, arms)
+    for d in dirs:
+        kinds = [e["kind"] for e in harness.read_events(d)]
+        assert kinds.count("trace_dump") == (3 if d.name == "rcA1" else 1)  # steps 1-2 only clear the buffers
+        assert any(e["kind"] == "dump" and e["tag"] == "s3" for e in harness.read_events(d))
+        assert list((d / "trace").glob("trace_s3_dp*.pt")), d

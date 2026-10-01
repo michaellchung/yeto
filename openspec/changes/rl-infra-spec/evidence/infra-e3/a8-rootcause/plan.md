@@ -1,0 +1,42 @@
+# A8 G4 根因调查：计划与运行前登记（INFRA-E3，2026-10-01；不改 tasks.md 4.6 的勾选，plan-v6 的 G1–G6 与容差不变）
+
+目的：判定 G4 差异（更新量 0.91%、sign 99.894%、exp_avg 0.30%）属于 (1) 正常跨 DP 数值差异、(2) 切换（重分片）实现缺陷、(3) 验收标准不合理。"bf16 精度低""loss 相同"不算根因，必须落到具体算子/路径并经干预验证。
+
+## 0. 离线（CPU）已得事实（取回的 packed 状态；脚本 `offline_g4_layers.py`，输出 `offline_g4_layers.txt`，运行前已得）
+1. **不经任何重分片/恢复，A1（DP1 从头）与 A2（DP2 从头）在步 2 的状态已有同一形态的差异**：exp_avg 总体相对 L2 0.26%，按层 27 层 1e-5、26 层 2.3e-4、25 层 7.7e-4、…、0 层 3.9e-3；exp_avg 逐位相等元素比例 27 层 99.7%、26 层 87.6%、…、0 层 46%。两条线从同一种子、同一冻结数据、同一初值出发，只有 DP 不同。⇒ 差异形态不是恢复/重分片造成的（现有数据能证明"存在"，不能证明"来源算子"）。
+2. B1 对 A1 的步 3 有效梯度（由 exp_avg 反推，g=(m3-0.9·m2)/0.1）：按层相对 L2：层 27 为 2.6e-5，层 26 为 7.3e-4，层 25 为 2.3e-3，层 24 为 3.1e-3，层 20 为 5.2e-3，层 0 为 1.4e-2（总体 8.3e-3）；exp_avg 逐位相等元素比例由层 27 的 99.1% 单调降到层 0 的 1.3%。形态：顶端只有极小扰动，经 bf16 激活梯度链逐层放大（每次 bf16 舍入把 fp32 级扰动变成稀疏的 1-ulp 翻转）。因此 **"最后一层差异为 0"并不准确**：层 27 各张量的 6e-6~2e-4（总体 2.6e-5）与 fp32 重建噪声同阶，只能说"从层 27 就开始，且量级在 fp32 噪声附近"，无法判定首个分歧算子。
+3. 梯度归约/缩放静态核对见 `../infra-e3/a8-run2/g4-analysis.md` §1–3：fp32 归约、loss 缩放因子全为 2 的幂（DP1：loss×16/16×1 再 /16；DP2：loss×8/16×2 再 /8），理论上逐微批反向应逐位相同；因此"理论逐位相同、实测不同"本身是待解释的矛盾，不能用"bf16 精度低"收尾。
+
+## 1. 对现有对照设计的局限（任务 1 的回答）
+- 现有 B1 对 A1：两者不仅 DP 不同（2 对 1），而且一个是"连续训练"、一个是"恢复后训练"；A1/A2 是各自从头的两条线。**不存在同形的"标准恢复"臂**，因此 B1-A1 的差异里"DP 配置"与"恢复路径（含重分片、以及恢复本身）"无法分开。
+- 现有数据中唯一的无恢复跨 DP 对照是 A1 对 A2（见 0.1）：它说明跨 DP 数值差异本身就存在，但 A1/A2 的 s2 混合了步 1、步 2 两步，且 A2 与 A1 的 C1/C2 起点本身就不同，无法对"同一步、同一状态"做因果切分。
+- 现有数据对 G3 只覆盖 DP2 恢复两次（B1 对 B1′），没有 DP1 的重复，也没有"同形恢复 vs 连续训练"。
+- 近似的标准路径：E2 的 `restore_cut`（同形恢复，cut 来自同一 DP 形状；与 `restore_cut_resharded` 共用 cut 文件和导出/导入的命名状态，但不走重分片合并/切片），已在 E2 的 A6 上验证。
+- **设计（同一状态 C、同一批冻结数据、步 3）**：C = rcA1 的 C1（DP1 步 2 之后）。
+  - (a) `rcSa`：DP1 标准同形恢复 C1 → 训练步 3；
+  - (b) `rcSb`：DP2 标准同形恢复 C1p → 训练步 3，其中 C1p = rcBc 在重分片恢复 C1 后立即 `save_cut`（DP2 形状的 cut，内容与 C1 逐位相同，G1 已证明）；
+  - (c) `rcBc`：DP2 经 `restore_cut_resharded(C1)`（弹性切换路径）→ 步 3；
+  - (d) `rcDd`：DP1 经 `restore_cut_resharded(C1p)`（反向切换）→ 步 3；
+  - 连续参照 `rcA1`：DP1 从头训练到步 3（同时产出 C1）。
+  - 局限：C1p 是经重分片产生的（没有"独立的 DP2 原生 cut 内容为 C1"的办法，因为 DP1 与 DP2 的训练本身会产生不同的 C）。(b) 的 DP2 加载走标准路径，但其输入文件来自 (c) 的导出；这足够把"加载路径"与"DP"分开：b 与 c 加载的是逐位相同的状态；若 b≠c，必是重分片加载引入的差异。
+
+## 2. 运行 RC-1（GPU；写在运行前）
+- 平台/卡：Modal Sandbox，`A10G:2`，运行前断言 `nvidia-smi` 名称为 NVIDIA A10G 且恰 2 张；Sandbox 无自动重试（等价 `--modal-retries 0`）；硬超时 5400 s；独立 watchdog 在 5700 s 按 app id `modal app stop`；app 名 `a8rc-rc1-20261001`。不经 yeto launcher、不碰 Nebius（避开 `_worker` 重建集群问题）。
+- 代码：infra-e3 提交（运行时 SHA 写入证据）；Miles pin 与镜像同 plan-v6（e3a11ab3，`@sha256:2cc5cc52…`）；learner flags 同 A8（`--rl-deterministic-trainer`，dropout 0，GBS 16，mbs 1，DistOpt，bf16，`--accumulate-allreduce-grads-in-fp32`，`--no-gradient-accumulation-fusion`，`--attention-backend unfused`）；确定性环境同 A8（NCCL_ALGO=Ring、CUBLAS_WORKSPACE_CONFIG=:4096:8、TF32 关、NVTE_ALLOW_NONDETERMINISTIC_ALGO=0）。
+- 阶段：dry → gen（8 个冻结 rollout，新生成；全部 arm 共用，故与 A8 的样本不同但自洽）→ rcA1、rcBc、rcSa、rcSb、rcDd（各只训练到步 3）→ pack。每个 arm 在步 3 装 `rc_trace` 并落盘。
+- 费用：约 1 h × 2 × $1.10 = $2.2；估计上限 $4.0（含取回）；单次上限 $8；本任务总上限 $25。
+- 追踪内容（`tools/probes/e3_reshard/rc_trace.py`，只读探针，CPU 测试 `tests/test_rl_e3_rc_trace.py`）：对每个训练微批（前向只读 log-prob 通道 no_grad 不计），每个子模块的前向输出、到达该输出的梯度（bwd_out）、模块自身反传产生的输入梯度（bwd_in）的 bit 校验和与 L2；每个可训练参数的逐微批 bf16 权重梯度（落盘，用于离线按任意顺序重做 fp32 累加）；微批 0、1 的层级输出/梯度全张量。
+
+### 预先声明的判读（运行前写定，事后不改）
+- **复现判据**：用 plan-v6 同口径从 packed 状态算 (a)(b) 的 `update_rel_l2` 与由 exp_avg 反推的梯度相对 L2。(b) 对 (a) 的梯度相对 L2 落在 [0.3%, 3%]（A8 的 0.83% 的 ÷3~×3）算"在 A10G 上复现同量级 G4 差异"；低于 0.3% 则不能用 A10G 做归因，后续用 `H100!:2`（需先登记）。
+- **R1 切换实现是否额外引入差异**（任务 1）：
+  - 逐位比较 s3 状态（adapter、FP32 master、exp_avg、exp_avg_sq）：`rcBc` vs `rcSb`（同为 DP2、加载同一状态、仅加载路径不同）；`rcDd` vs `rcSa`（同为 DP1）。**两对都逐位相同 ⇒ 弹性切换路径对该步没有额外引入任何差异（排除 (2)）**；任一对不同 ⇒ 记为切换实现的候选缺陷，量级与 (b)-(a) 对比，并停下追查加载路径。
+  - `rcSa` vs `rcA1`（DP1 恢复 vs 连续）：不同 ⇒ 恢复本身（与重分片无关）改变数值，需单独解释。
+  - `rcSb` vs `rcSa`：同一加载路径、不同 DP 的差异 = "DP 本身"的量；与 A8 的 G4 量级比较。
+- **R2 首次分歧**：对 `rcSa`（DP1）与 `rcSb`（DP2）按样本 id 对齐微批（DP2 的微批 k→rank k%2，见 plan-v6 G2）。逐微批判定：根输入、各模块前向输出、各 bwd_out/bwd_in 校验和是否逐位相同；在反向执行序（trace 里按 hook 触发顺序，层 27→0）上找第一个不同的张量，其所属模块的反传即首个分歧算子（含 LoRA matmul、TE 融合 norm+linear、attention unfused bmm/softmax 等）。同时逐微批比较每个参数的 bf16 wgrad，并用保存的 wgrad 按 DP1 序与 DP2 序（rank 内顺序累加再求和乘 1/2）离线重做 fp32 累加，与步 3 实际梯度（由 exp_avg 反推）比较，检验"累加顺序"能否解释层 27 的残差。
+  - 若全部微批的前向、反传张量、wgrad 都逐位相同：差异只可能来自微批间的累加/归约/Adam，需另设计干预；
+  - 若 wgrad 逐微批已不同：以首个分歧张量定位算子，并按 R3 设计干预。
+- **R3 干预与基线（RC-2，若 R2 定位后另行登记）**：只在登记新的 plan 节（含 arm、判读、费用）并提交后才运行。基线：同一 DP 下改变微批处理顺序得到的自然差异（用于评估 0.1%/99.9% 门槛）。
+
+## 3. 汇总（回填）
+运行完成后在 `rc1/` 与 `analysis.md` 回填；费用与 `modal app list` 核验写入 `/home/michael/work/infra-drafts/gpu-spend.md` 与 progress.md。

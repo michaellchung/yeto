@@ -85,6 +85,14 @@ def pack(work: Path, merge, load) -> dict:
             index["files"][path.name] = {"bytes": path.stat().st_size,
                                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
             print(f"packed {name} {path.stat().st_size / 2**20:.1f} MiB", flush=True)
+    # a8-rootcause: rc_trace dumps (arms/<arm>/trace/*.pt) travel with the packed states
+    for arm_dir in sorted((Path(work) / "arms").iterdir()):
+        for src in sorted((arm_dir / "trace").glob("*.pt")) if (arm_dir / "trace").is_dir() else ():
+            dst = out_dir / f"{arm_dir.name}_{src.name}"
+            dst.write_bytes(src.read_bytes())
+            index["files"][dst.name] = {"bytes": dst.stat().st_size,
+                                        "sha256": hashlib.sha256(dst.read_bytes()).hexdigest()}
+            print(f"packed trace {dst.name} {dst.stat().st_size / 2**20:.1f} MiB", flush=True)
     (out_dir / "index.json").write_text(json.dumps(index, indent=1, sort_keys=True))
     return index
 

@@ -36,6 +36,8 @@ class ArmSpec:
     save_after_restore: str | None = None  # cut id saved right after the restore (B1 -> C1')
     cut_at_step2: str | None = None  # cut id saved after step 2 (A arms)
     last_step: int = 8
+    standard: bool = False  # same-shape restore through ``restore_cut`` (E2 path), not the resharded loader
+    trace: bool = False  # install rc_trace (a8-rootcause) and dump it after each trained step
 
 
 # plan-v3 §2.1, in order.
@@ -47,7 +49,17 @@ ARMS = (
     ArmSpec("B2", dp=1, restore="C2", restore_source_dp=2),
     ArmSpec("RT", dp=1, restore="C1p", restore_source_dp=2, last_step=2),
 )
-ARM_BY_NAME = {a.name: a for a in ARMS}
+# a8-rootcause plan.md: same C (= C1 from rcA1), frozen data, four load paths x two DP shapes.
+RC_ARMS = (
+    ArmSpec("rcA1", dp=1, cut_at_step2="C1", last_step=3, trace=True),  # continuous DP1 from scratch
+    ArmSpec("rcBc", dp=2, restore="C1", restore_source_dp=1, save_after_restore="C1p", last_step=3, trace=True),  # (c)
+    ArmSpec("rcSa", dp=1, restore="C1", restore_source_dp=1, standard=True, last_step=3, trace=True),  # (a)
+    ArmSpec("rcSb", dp=2, restore="C1p", restore_source_dp=2, standard=True, last_step=3, trace=True),  # (b)
+    ArmSpec("rcDd", dp=1, restore="C1p", restore_source_dp=2, last_step=3, trace=True),  # (d)
+)
+ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS}
+TRACE_INSTALL = "rc_trace.install_trace"
+TRACE_DUMP = "rc_trace.dump_trace"
 DUMP_STEPS = (2, 3, 8)
 
 
@@ -148,8 +160,19 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
     try:
         ev.event("probe_installed", ranks=backend.plugin(INSTALL_PROBE))
         _probe(backend, ev, "start")
+        if spec.trace:
+            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL))
         step = 0
-        if spec.restore:
+        if spec.restore and spec.standard:
+            if spec.restore_source_dp != spec.dp:
+                raise ValueError("a standard (same-shape) restore needs restore_source_dp == dp")
+            manifest = backend.trainer.restore_cut(
+                spec.restore, epoch=0, root=str(cuts), expect=expectation(backend, spec.restore_source_dp, 2))
+            step = 2
+            ev.event("restore", cut_id=spec.restore, standard=True, layout=dict(manifest.runtime["layout"]))
+            _probe(backend, ev, "restored")
+            _dump(backend, ev, "restored")
+        elif spec.restore:
             plan = ReshardPlan(_layout(spec.restore_source_dp), _layout(spec.dp),
                                backend.global_batch_size, backend.micro_batch_size)
             result = backend.trainer.restore_cut_resharded(
@@ -174,6 +197,9 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
                 ev.event("cut", cut_id=spec.cut_at_step2, step=step)
             if step in DUMP_STEPS:
                 _dump(backend, ev, f"s{step}")
+            if spec.trace:  # only the last (compared) step is kept; earlier steps just clear the buffers
+                ev.event("trace_dump", step=step, ranks=backend.plugin(
+                    TRACE_DUMP, {"directory": str(ev.dir / "trace"), "tag": f"s{step}", "save": step == spec.last_step}))
         _probe(backend, ev, "end")
         ev.event("end", arm=spec.name, step=step)
     except BaseException as exc:

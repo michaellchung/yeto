@@ -38,6 +38,9 @@ ARMS = ("A1", "A2", "B1", "B1p", "B2", "RT")
 PROFILES = {
     "dev-gather": {"gpu": "A10G:2", "expect": ("NVIDIA A10G", "NVIDIA A10"), "timeout": 5400, "deterministic": False},
     "a8": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 7200, "deterministic": True},
+    # a8-rootcause (evidence/infra-e3/a8-rootcause/plan.md): same-start controls + trace on a cheap card
+    "a8rc": {"gpu": "A10G:2", "expect": ("NVIDIA A10G",), "timeout": 5400, "deterministic": True,
+             "arms": ("rcA1", "rcBc", "rcSa", "rcSb", "rcDd")},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -47,7 +50,8 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",)}
+OVERRIDES["a8rc"] = list(OVERRIDES["dev-gather"])
+REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 
@@ -67,7 +71,7 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
     shim = "/yeto/tools/probes/e3_reshard/learner_shim.py"
     sets = " ".join(f"--set {o}" for o in OVERRIDES[profile])
     # bash -c re-parses the shell-quoted learner flags (e.g. the chat-template JSON).
-    cmd = (f'env {env} PYTHONPATH=/root/miles:/sgl-workspace/sglang/python:/yeto:${{PYTHONPATH:-}} '
+    cmd = (f'env {env} PYTHONPATH=/root/miles:/sgl-workspace/sglang/python:/yeto:/yeto/tools/probes/e3_reshard:${{PYTHONPATH:-}} '
            f'bash -c "python {shim} --work {work} {sets} $2 -- $(cat {flags_file})"')
     lines = [
         "set -uo pipefail",
@@ -88,7 +92,7 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         f"    for i in $(seq 1 {PULL_WAIT_S // 5}); do [ -f {PULLED_FLAG} ] && break; sleep 5; done",
         f'    [ -f {PULLED_FLAG} ] && echo "packed pulled" >> {work}/progress.log',
         "  fi",
-        f"  tar czf /work/e3-evidence.tgz -C {work} --exclude=cuts --exclude='arms/*/state' --exclude=frozen "
+        f"  tar czf /work/e3-evidence.tgz -C {work} --exclude=cuts --exclude='arms/*/state' --exclude='arms/*/trace' --exclude=frozen "
         "--exclude=packed . "
         "2>/dev/null",
         '  echo "=== EVIDENCE_B64 ==="; base64 -w0 /work/e3-evidence.tgz; echo',
@@ -130,13 +134,14 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         'run_phase dry "--phase dry"',
         'run_phase gen "--phase gen"',
     ]
-    lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in ARMS]
-    lines += [
-        'progress "compare start"',
-        f"PYTHONPATH=/root/miles:/yeto python /yeto/tools/probes/e3_reshard/compare.py {work} "
-        f"|| progress compare-failed",
-        f"cat {work}/RESULT.json 2>/dev/null || true",
-    ]
+    lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in p.get("arms", ARMS)]
+    if "arms" not in p:  # a8rc: the analysis is offline (compare_rc.py on the retrieved packed files)
+        lines += [
+            'progress "compare start"',
+            f"PYTHONPATH=/root/miles:/yeto python /yeto/tools/probes/e3_reshard/compare.py {work} "
+            f"|| progress compare-failed",
+            f"cat {work}/RESULT.json 2>/dev/null || true",
+        ]
     return "\n".join(lines)
 
 
