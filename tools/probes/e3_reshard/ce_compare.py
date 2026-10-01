@@ -1,6 +1,6 @@
 """RC-7 offline analysis (a8-rootcause plan.md section 12): compare the fused-CE probe records of several hosts.
 
-    python ce_compare.py <label>=<packed dir> [<label>=<packed dir> ...] [--out result.json]
+    python ce_compare.py <label>=<packed dir>[@arm] [...] [--out result.json]
 
 <packed dir> holds gA2e_trace_s2_dp0.pt / dp1.pt (and gA2e_s2.pt). For every pair of hosts, every rank and every
 call, the stages are compared in pipeline order (first fields are the earliest) and the FIRST differing stage is
@@ -18,10 +18,10 @@ FWD_STAGES = ("logits_in", "logits_max", "logits_shifted_in", "target", "target_
 BWD_STAGES = ("softmax_in", "grad_output", "target_mask_in", "masked_target_in", "out")
 
 
-def load_trace(d: Path, dp: int):
+def load_trace(d: Path, dp: int, arm: str = "gA2e"):
     import torch
 
-    p = d / f"gA2e_trace_s2_dp{dp}.pt"
+    p = d / f"{arm}_trace_s2_dp{dp}.pt"
     return torch.load(p, weights_only=False) if p.exists() else None
 
 
@@ -111,7 +111,8 @@ def main(argv):
     hosts = {}
     for a in argv:
         label, path = a.split("=", 1)
-        hosts[label] = {dp: load_trace(Path(path), dp) for dp in (0, 1)}
+        path, _, arm = path.partition("@")  # <dir>[@arm], default arm gA2e
+        hosts[label] = {dp: load_trace(Path(path), dp, arm or "gA2e") for dp in (0, 1)}
         hosts[label] = {dp: t for dp, t in hosts[label].items() if t is not None}
     res = {"hosts": {k: host_summary(v) for k, v in hosts.items()}, "pairs": {}}
     labels = list(hosts)

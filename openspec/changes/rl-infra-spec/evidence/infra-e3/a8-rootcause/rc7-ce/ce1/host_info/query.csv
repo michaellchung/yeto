@@ -1,0 +1,3 @@
+index, uuid, name, driver_version, vbios_version, clocks.current.sm [MHz], clocks.max.sm [MHz], clocks.current.memory [MHz], clocks.max.memory [MHz], power.limit [W], ecc.mode.current, ecc.errors.uncorrected.aggregate.total, pci.bus_id, serial
+0, GPU-f6cca840-c7ad-069b-41f1-a682d7f6ace4, NVIDIA H100 80GB HBM3, 580.95.05, 96.00.DB.00.02, 345 MHz, 1980 MHz, 2619 MHz, 2619 MHz, 700.00 W, Enabled, 0, [Unknown Error], 1655023032148
+1, GPU-2362f43c-ce87-108b-aca5-86bd86d0860d, NVIDIA H100 80GB HBM3, 580.95.05, 96.00.DB.00.02, 345 MHz, 1980 MHz, 2619 MHz, 2619 MHz, 700.00 W, Enabled, 0, [Unknown Error], 1654923024199

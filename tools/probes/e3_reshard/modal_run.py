@@ -59,6 +59,10 @@ PROFILES = {
     "a8rc-h100e": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 1020, "deterministic": True,
                    "arms": ("gA2e",), "arm_deadline_s": 600, "host_info": True,
                    "gate": {"after": "gA2e", "ref": "/work/ref/A1_s2.pt", "tag": "s2", "threshold": "1e-5"}},
+    # RC-7b: the RC-4 arm configuration (cut after step 2, 3 steps) with the CE probe; 780 s hard timeout (<= $1.71 per host)
+    "a8rc-h100f": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 780, "deterministic": True,
+                   "arms": ("cA2e",), "arm_deadline_s": 420, "host_info": True,
+                   "gate": {"after": "cA2e", "ref": "/work/ref/A1_s2.pt", "tag": "s2", "threshold": "1e-5"}},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -68,11 +72,11 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = OVERRIDES["a8rc-h100c"] = OVERRIDES["a8rc-h100d"] = OVERRIDES["a8rc-h100e"] = list(OVERRIDES["dev-gather"])
+OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = OVERRIDES["a8rc-h100c"] = OVERRIDES["a8rc-h100d"] = OVERRIDES["a8rc-h100e"] = OVERRIDES["a8rc-h100f"] = list(OVERRIDES["dev-gather"])
 REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",),
                  "a8rc-h100": ("--deterministic-mode",), "a8rc-h100b": ("--deterministic-mode",),
                  "a8rc-h100c": ("--deterministic-mode",), "a8rc-h100d": ("--deterministic-mode",),
-                 "a8rc-h100e": ("--deterministic-mode",)}
+                 "a8rc-h100e": ("--deterministic-mode",), "a8rc-h100f": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 

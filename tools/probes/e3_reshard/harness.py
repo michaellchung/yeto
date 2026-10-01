@@ -93,6 +93,9 @@ HOST_ARMS = (
 # RC-7 (plan.md section 12): the gate arm again, with the fused-cross-entropy probe (rc_trace.ce_probe) at the loss level
 _CE = (("module_hooks", False), ("loss_level", True), ("save_wgrads", False), ("ce_probe", True), ("ce_save", 1))
 CE_ARMS = (ArmSpec("gA2e", dp=2, last_step=2, trace=True, trace_steps=(1,), trace_opts=_CE),)
+# RC-7b (plan.md section 13): the RC-4/RC-2 arm configuration (cut after step 2, 3 steps) with the same CE probe, no saved tensors
+_CE0 = (("module_hooks", False), ("loss_level", True), ("save_wgrads", False), ("ce_probe", True), ("ce_save", 0))
+CE_ARMS = CE_ARMS + (ArmSpec("cA2e", dp=2, cut_at_step2="C2", last_step=3, trace=True, trace_steps=(1, 2), trace_opts=_CE0),)
 ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS + BISECT_ARMS + HOST_ARMS + CE_ARMS}
 KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"

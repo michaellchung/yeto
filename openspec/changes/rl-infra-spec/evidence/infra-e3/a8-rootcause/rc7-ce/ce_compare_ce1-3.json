@@ -1,0 +1,522 @@
+{
+ "hosts": {
+  "ce1": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "f6cca840-c7ad-069b-41f1-a682d7f6ace4",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "2362f43c-ce87-108b-aca5-86bd86d0860d",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  },
+  "ce2": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "c9b09f53-e2fc-f60d-2741-ad163ce969e1",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "afc5ab48-9010-6b59-6fc4-246a75930409",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  },
+  "ce3": {
+   "dp0": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "bd94d70f-84ee-804c-457e-a1bfdad9227a",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   },
+   "dp1": {
+    "n_fwd": 16,
+    "n_bwd": 8,
+    "ptr_matched_bwd": 8,
+    "nonzero_bwd": 4,
+    "compiled_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_recompute_equal": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ],
+    "eager_vs_out_max_abs": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "probe_errors": [],
+    "device": {
+     "gpu": "NVIDIA H100 80GB HBM3",
+     "uuid": "429f3dc1-f6bc-2c73-0605-f4987dd12d8f",
+     "sm_count": 132,
+     "capability": [
+      9,
+      0
+     ],
+     "torch": "2.13.0+cu130",
+     "cuda": "13.0"
+    }
+   }
+  }
+ },
+ "pairs": {
+  "ce1__ce2": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 238
+     }
+    }
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 233
+     }
+    }
+   }
+  },
+  "ce1__ce3": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 238
+     }
+    }
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 233
+     }
+    }
+   }
+  },
+  "ce2__ce3": {
+   "dp0": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 238
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 36160768
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 238
+     }
+    }
+   },
+   "dp1": {
+    "n_fwd": [
+     16,
+     16
+    ],
+    "n_bwd": [
+     8,
+     8
+    ],
+    "fwd_first_diff": {},
+    "bwd_first_diff": {},
+    "logit_grad_row_bits_diff_mbs": [],
+    "logits_row_bits_diff_mbs": [],
+    "big": {
+     "ce0|grad_output": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|masked_target_1d": {
+      "differing_elements": 0,
+      "numel": 233
+     },
+     "ce0|out": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|softmax_in": {
+      "differing_elements": 0,
+      "numel": 35401088
+     },
+     "ce0|target_mask": {
+      "differing_elements": 0,
+      "numel": 233
+     }
+    }
+   }
+  }
+ }
+}
