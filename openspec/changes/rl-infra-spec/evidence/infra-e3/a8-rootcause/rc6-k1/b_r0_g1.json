@@ -1,0 +1,102 @@
+{
+ "autotune_pointwise": true,
+ "cache_dir": "/tmp/cache_b_0/ind",
+ "gpu": "NVIDIA H100 80GB HBM3",
+ "inductor": {
+  "coordinate_descent_tuning": false,
+  "freezing": false,
+  "fx_graph_cache": true,
+  "max_autotune": false,
+  "max_autotune_pointwise": false
+ },
+ "inventory": {
+  "best_config": {},
+  "cubin": {},
+  "triton_meta": {}
+ },
+ "order": [
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  0
+ ],
+ "rot": 1,
+ "samples": {
+  "0": {
+   "T": 384,
+   "grad_abs_sum": 3.313814218523076,
+   "grad_output": "d3365e2551ba0d7759ed",
+   "logit_grad": "245d55899cfeb2dd6e90",
+   "logp": "c13d03967ebeb7a914a5",
+   "loss": "dcda510be5d8607ab971"
+  },
+  "1": {
+   "T": 347,
+   "grad_abs_sum": 6.073933245072128,
+   "grad_output": "1b6016f68dd0baad34a4",
+   "logit_grad": "00df732f8444b55da126",
+   "logp": "2a51149212a4e11372ff",
+   "loss": "90f6bff560ecca329bce"
+  },
+  "2": {
+   "T": 291,
+   "grad_abs_sum": 5.44345392071151,
+   "grad_output": "9efdf787876bcf0caf7b",
+   "logit_grad": "b5dbb476425ca505dcb2",
+   "logp": "450a6cb1724ce159130d",
+   "loss": "969322459d4313dfa705"
+  },
+  "3": {
+   "T": 402,
+   "grad_abs_sum": 5.505104804854604,
+   "grad_output": "639499c36c384106271c",
+   "logit_grad": "28f40172b84881606c99",
+   "logp": "92c5ffdeec9005c0f1b5",
+   "loss": "9622733d68f2c24cc740"
+  },
+  "4": {
+   "T": 256,
+   "grad_abs_sum": 5.482736561777227,
+   "grad_output": "53062d428b3ad79229c7",
+   "logit_grad": "2982b723cc5fd52678c6",
+   "logp": "127073d6d7eef9f779b0",
+   "loss": "0571d56f6adc1281037e"
+  },
+  "5": {
+   "T": 331,
+   "grad_abs_sum": 9.776777441414119,
+   "grad_output": "5b337a6659dfce136b29",
+   "logit_grad": "fc700928ada0b1646c36",
+   "logp": "61208d0452444377fb0b",
+   "loss": "484fb462ddf495cf294d"
+  },
+  "6": {
+   "T": 365,
+   "grad_abs_sum": 6.718676603840612,
+   "grad_output": "1abec78749531f67e30b",
+   "logit_grad": "f14b5563158df18ff013",
+   "logp": "fc8cc84c4dbfa20d7384",
+   "loss": "ad21d2765fdc8b2ea9fd"
+  },
+  "7": {
+   "T": 318,
+   "grad_abs_sum": 6.236519410486357,
+   "grad_output": "06c479d7432c6aaa8903",
+   "logit_grad": "2c8552160fab642056f1",
+   "logp": "b29ccfd91a7b928fee4e",
+   "loss": "2dd0ff641026290fcf0b"
+  }
+ },
+ "sm_count": 132,
+ "tag": "b_r0_g1",
+ "torch": "2.13.0+cu130",
+ "triton": "3.7.1",
+ "triton_cache_dir": "/tmp/cache_b_0/tri",
+ "uuid": "9cf118ea-c7f9-0c4c-4132-69598e11b46a",
+ "variant": "b",
+ "wall_s": 15.7
+}

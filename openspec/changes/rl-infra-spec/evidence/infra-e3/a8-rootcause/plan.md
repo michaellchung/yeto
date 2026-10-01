@@ -169,3 +169,10 @@
 - 若 (a) 内也全部逐位相同：本主机不暴露该机制，**不能**确认也不能排除；只记录 cubin/config 指纹作为跨主机参照；是否再抽一台主机（≈$3）由剩余预算决定（剩余 < $5 则停并如实汇报"未确认"）。
 - 若 (a) 内 worker 间差异存在但 config 集合相同：编译选择被排除，转向其它来源（如静态/动态 shape 特化、同一 kernel 的硬件差异），如实记录。
 - 费用：容器启动 ≈4 min + 7 个 worker 对 ≈ 2 min 各 ≈ 14 min + 取回 ≈ 22 min ≈ $2.9；`Sandbox timeout=2400 s`（上限 $5.3）；独立 watchdog 2700 s；app 名 `a8rc-k1-20261001`；断言 `H100 80GB HBM3` 两张、Miles pin；`--modal-retries 0`（本脚本不重试）。
+
+### 10.3 RC-6 第 1 台主机结果（app a8rc-k1-20261001，ap-CBditBKdGuIVOpv8wFY41V，06:54:07–06:59:54Z，H100!:2，GPU e98f3a30/9cf118ea，≈$0.8；证据 `rc6-k1/`，汇总 `rc6-k1/RESULT_kprobe.json`）
+- 全部 worker 退出码 0，driver rc=0；GPU 断言与 Miles pin 通过；torch 2.13.0+cu130、triton 3.7.1。
+- 变体 (a)：3 次冷缓存重复 × 2 个独立进程（GPU0/GPU1，首个形状不同）= 6 个 worker，对 8 个样本、4 个字段（loss/logp/grad_output/logit_grad）**全部逐位相同**。(c1)（4 worker）、(c2)（3 worker，固定缓存）同样全部逐位相同；(a)(c1)(c2) 三者之间也逐位相同（以 a_r0_g0 为参照，差异计数全 0）。
+- autotune 选择确实会变：(a) 与 (c1) 的 cubin 集合里 `triton_poi_fused_copy__div_split_unsqueeze_1`（softmax 除法）的 num_warps 为 8 对 4；而输出逐位相同 ⇒ **pointwise 的 autotune 选择不影响数值**；关键的 reduction（`triton_red_fused_copy__exp_sub_sum_unsqueeze_2`、`triton_red_fused_max_0`）只有单一 config（16 warps，启发式而非计时选择），所有 worker 一致。
+- 变体 (b)（`TORCHDYNAMO_DISABLE=1`，融合 CE 与 loss 走 eager）：两个 worker 彼此逐位相同，但与 (a) 的编译路径 8 个样本全部不同（loss/logp/grad_output/logit_grad 都不同）——**编译路径与 eager 路径在数值上本来就不是同一计算**（预期内；说明如果某台主机走的是另一条路径，结果就会整体不同）。
+- 判读（按 §10.2）：**(a) 内无差异 ⇒ 本主机不暴露该机制；H1（计时 autotune 选出不同数值的 kernel）在本主机上被直接反证（autotune 选择变了、数值没变）**；不能据此排除"别的主机上编译路径本身不同"。按登记规则：剩余预算足够再抽主机（每台 ≈$0.8），见 §11。

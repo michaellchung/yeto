@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from modal_run import IMAGE, MILES_COMMIT  # noqa: E402
 
-TIMEOUT_S = 2400
+TIMEOUT_S = int(os.environ.get("KPROBE_TIMEOUT_S", "2400"))
 SCRIPT = f"""set -uo pipefail
 exec 2>&1
 mkdir -p /work/k
