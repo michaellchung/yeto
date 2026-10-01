@@ -77,3 +77,21 @@
 1. 若复现，用逐层追踪定位**第一个**分歧张量/模块。探针另记 kernel 选择信息：`rc_trace` 对 rcSa、rcSb 用 torch profiler 抓微批 0 前向+反传的 CUDA kernel 名称与次数（只在该微批内，异常不影响训练）；dump 记录 TE/flash-attn/Megatron/cuDNN/cuBLAS 版本与全部 `NVTE_*`/`CUBLAS*`/`NCCL_*`/`CUDA_*`/`TORCH_*`/`NVIDIA_*` 环境变量（`device` 字段）。能拿到的"算法 ID"即 kernel 名（含 split-K/stream-K 等变体）。
 2. 汇报分开两项结论：(A) 切换相对标准路径是否逐位一致（rcBc/rcSb、rcDd/rcSa、rcSa/rcA1）；(B) DP1 对 DP2 差多少（rcSb/rcSa；rcA2/rcA1 的步 1–3）。
 3. A8 原数据与 RC 数据是否相同：A8 的冻结样本在其容器内生成、未取回，RC 的冻结样本是新生成的（同 seed 1234、同提示、`--sglang-enable-deterministic-inference`，但不同容器/卡）。运行后以"H100 上 RC 的 rcA1 步 1 逐样本 loss（hex）对 A8 的 A1 步 1"逐位比较判定：全部相同 ⇒ 数据相同；不同 ⇒ 数据不同，写明。A10G（RC-1d）的 loss 因卡不同不可比。
+
+## 5. RC-2 结果（H100!:2，app a8rc-rc2-20261001，ap-lxoc2DogJS48ic6Bw2xENq，04:03:36–≈04:40Z，≈$4.9；证据 `rc2-h100/`，判读 `rc2-h100/RESULT_rc.json`、`device_and_kernels.json`、`data_identity.txt`）
+- **(A) 切换相对标准路径**：rcBc 对 rcSb（DP2）、rcDd 对 rcSa（DP1）、rcSa 对 rcA1（DP1 同形恢复 vs 连续）步 3 全状态**逐位相同**；四个恢复 arm 恢复后状态与 C1 逐位相同；逐微批的前向/反传校验和与 wgrad 同样逐位相同。⇒ 按 §2 R1 判据，**弹性切换（重分片加载，DP1→2 与 2→1）没有额外引入任何差异**（限本卡、一步、本批数据）。A10G 同。
+- **(B) DP1 对 DP2**（rcSb 对 rcSa，同一 C1）：梯度相对 L2 8.29e-3、update 相对 L2 9.13e-3、sign 一致率 99.85%、exp_avg 相对 2.96e-3——与 A8 的 G4（0.91%、99.894%、0.30%）一致，**复现**（§4 判读"复现"分支）。数据同 A8：A8 的 A1 与 RC 的 rcA1 步 1、2、3 逐样本 loss（hex）全部逐位相同（`data_identity.txt`），故步 1–2 数据与 A8 相同（A10G 上步 1 也相同）。
+- **首个分歧**：16 个样本里 8 个（32–39，一个 group）优势为 0、loss 与梯度恒为 0；其余 8 个（40–47）：DP2 的 rank0 上的样本（40、42、44、46）与 DP1 逐位相同（层级前向/反传张量、全部 wgrad；仅 layer 27 个别次正规数处的 2^±1 缩放伪差），**rank1 上的样本（41、43、45、47）全部不同**。差异最早出现在整网反传的起点——logits 的梯度（`module.module|bwd_out`，[1,T,151936]）——此前前向 logits、loss 逐位相同；随后逐层放大（wgrad 相对差：layer 27 约 1e-5，26 约 9e-4，25 约 3e-3，20 约 6e-3，13 约 1e-2，0 约 1.8e-2；逐位相等元素比例 100%→10%）。与 A8 步 3 的逐层形态相同。
+- kernel：rcSa、rcSb（rank0、rank1）微批 0 的 CUDA kernel 名称多重集合完全一致（131/132 个名称，差异仅为探针自己的 `×bwd_scale` 逐元素乘），GEMM/attention kernel 选择与 rank 无关（至少对微批 0 这一优势为 0 的样本）。环境：H100 80GB HBM3、132 SM、TE 2.17.0、flash_attn 2.7.4（`NVTE_FLASH_ATTN=0`、`NVTE_FUSED_ATTN=0`、`NVTE_UNFUSED_ATTN=1`）、cuDNN 9.22、torch 2.13.0+cu130、`CUBLAS_WORKSPACE_CONFIG=:4096:8`、`NVIDIA_TF32_OVERRIDE=0`、`NVTE_ALLOW_NONDETERMINISTIC_ALGO=0`、`NCCL_ALGO=Ring`、`torch.use_deterministic_algorithms(True)`、`allow_bf16_reduced_precision_reduction=True`。
+- 含义：此前"逐样本反传在 DP1 与 DP2 下普遍不同、bf16 精度所致"的结论被推翻：同样本在 rank0 与 DP1 逐位相同；差异只来自 rank1 这条计算，且起点在 loss→logits 梯度这一步的输入或该步算子；逐层放大只是传播。
+
+## 6. RC-3：判别 "输入 / rank1 进程 / 物理 GPU"（运行前登记）
+- 候选：(H-input) rank1 喂给 loss 的输入不同（old_log_probs、优势、缩放、loss_mask 等；old_log_probs 来自 no_grad 的 forward-only 通道）；(H-gpu) 物理 GPU 1 上该算子数值不同；(H-rank) rank1 进程相关的状态。
+- 探针追加（只读，CPU 测试 `tests/test_rl_e3_rc_trace.py`）：记录 forward-only（old log-prob）通道的层级/顶层输出校验和；每个训练微批的 loss 输入（`log_probs`=old、`advantages`、`loss_masks`、长度、`rewards`）与 loss 返回的 metrics（`pg_loss`、`ppo_kl`、`pg_clipfrac` 等）、标量 loss；logits 前向与 logits 梯度的按 token 行校验和及行 L1；DP1 的微批 9 与 DP2 的本地微批 4（即样本 41）的完整 logits 梯度张量（fp32 [1,T,151936]）供逐元素比较；设备 UUID/索引与 `CUDA_VISIBLE_DEVICES`。
+- arm（容器内顺序；`H100!:2`，同 A8 的确定性环境）：`dA1`（DP1 从头→C1，步 3 深探针）、`dBc`（DP2，重分片恢复 C1，保存 C1p，步 3 深探针）；然后容器内 `ray stop`，以 `CUDA_VISIBLE_DEVICES=1,0` 重启 Ray（逻辑 GPU 0 变为物理 GPU 1）并用 `gpu_map.py` 打印映射，再跑 `dSaX`（DP1 标准恢复 C1，现在落在物理 GPU 1）与 `dSbX`（DP2 标准恢复 C1p，rank0/rank1 与物理 GPU 的对应互换）。
+- 预先声明的判读：
+  1. **复现**：dBc 的样本 40/42/44/46 与 dA1 逐位相同、41/43/45/47 不同（以 wgrad 与层级校验和判）；否则记录并停止归因。
+  2. **H-input**：对不同的样本，若 old_log_probs、优势、loss_mask、rewards、logits 前向行校验和中任一项在 dA1 与 dBc 之间不同 ⇒ 来源是喂给 rank1 的输入；用 forward-only 通道的逐模块校验和定位 old_log_probs 的首个分歧（或数据路径）；之后追到负责代码，按实现缺陷处理并修。
+  3. 若所有 loss 输入与 metrics 逐位相同、logits 梯度行校验和仍不同：用保存的 logits 梯度张量逐元素比较，判定差异落在哪些行/列（目标 token 列、响应行、低概率列）及量级；这是 loss 反传算子本身在 rank1 上的数值差异。
+  4. **H-gpu vs H-rank**：dSaX 对 dA1 逐位相同 ⇒ DP1 在物理 GPU 1 上与 GPU 0 一致；不同 ⇒ 物理 GPU 1 的数值不同。dSbX 对 dBc 逐位相同且 rank1 的样本仍与 DP1 不同 ⇒ 差异跟 rank/进程/样本走，不跟物理 GPU 走；若互换后 rank0 的样本变为不同而 rank1 的变为相同 ⇒ 差异跟物理 GPU 走。（主 agent 建议的"对调样本到 rank 的分派"：分派在 rollout 侧调度，本批不改；如需要，作为后续单独登记。）
+- 费用与上限：Modal `H100!:2`，硬超时 2700 s、新 arm 最迟 1800 s、watchdog 3000 s；预估 $4–5，上限 $5.9；累计已花 ≈$8.0，本次后 ≤$13.9，总上限 $25。app 名 `a8rc-rc3-20261001`。

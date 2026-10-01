@@ -87,8 +87,13 @@ def _flush() -> dict[str, Any]:
     return out
 
 
-def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool = False, save_mb: tuple = (0, 1), name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
-                  save_wgrads: bool = True) -> dict[str, Any]:
+FO_FILTER = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|module\.module$"
+
+
+def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool = False, save_mb: tuple = (0, 1),
+                  name_filter: str = r"decoder\.layers\.\d+$|output_layer$|final_layernorm$|embedding$",
+                  save_wgrads: bool = True, forward_only: bool = False, loss_level: bool = False,
+                  logit_grad_mb: tuple = (), fo_filter: str = FO_FILTER) -> dict[str, Any]:
     """Register the hooks on every model chunk (idempotent per process)."""
     import torch
 
@@ -96,7 +101,9 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
         return {"installed": False, "reason": "already installed"}
     _ST.update({"records": {}, "mb": -1, "save_mb": set(int(i) for i in save_mb), "tensors": {}, "wgrad": {},
                 "filter": re.compile(name_filter), "handles": [], "bwd_scale": float(bwd_scale),
-                "profile": bool(profile_kernels), "prof": None, "kernels": None, "save_wgrads": bool(save_wgrads), "names": []})
+                "profile": bool(profile_kernels), "prof": None, "kernels": None, "save_wgrads": bool(save_wgrads), "names": [],
+                "fo": -1, "forward_only": bool(forward_only), "fo_filter": re.compile(fo_filter), "small": {},
+                "logit_grad_mb": set(int(i) for i in logit_grad_mb), "big": {}})
     handles = _ST["handles"]
     mod_count = 0
 
@@ -106,6 +113,11 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
     def make_pre_root():
         def pre(mod, args, kwargs=None):
             if not torch.is_grad_enabled():
+                if _ST["forward_only"]:  # the old-policy log-prob pass (no_grad): its own counter, outputs only
+                    _ST["fo"] += 1
+                    for i, t in enumerate(_tensors(list(args)) + _tensors(kwargs or {})):
+                        if t.numel():
+                            _put(f"fo{_ST['fo']}|<root-input>|in|{i}", t)
                 return
             _ST["mb"] += 1
             mb = _ST["mb"]
@@ -125,7 +137,12 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                     t.register_hook(lambda g, mb=mb, name=name, i=i: _put(f"{mb}|{name}|bwd_in|{i}", g))
 
         def hook(mod, args, out):
-            if not torch.is_grad_enabled() or _ST["mb"] < 0:
+            if not torch.is_grad_enabled():
+                if _ST["forward_only"] and _ST["fo"] >= 0 and _ST["fo_filter"].search(name):
+                    for i, t in enumerate(_tensors(out)):
+                        _put(f"fo{_ST['fo']}|{name}|fwd|{i}", t)
+                return
+            if _ST["mb"] < 0:
                 return
             mb = _ST["mb"]
             for i, t in enumerate(_tensors(out)):
@@ -159,7 +176,62 @@ def install_trace(actor: Any, *, bwd_scale: float = 1.0, profile_kernels: bool =
                     def on_wgrad(g, pname=f"c{ci}.{pname}"):
                         _ST["wgrad"].setdefault(_ST["mb"], {})[pname] = _unscale("|bwd_", g).detach().to("cpu", copy=True)
                     handles.append(p.register_hook(on_wgrad))
-    return {"installed": True, "modules": mod_count}
+    if loss_level:
+        _install_loss_level()
+    return {"installed": True, "modules": mod_count, "loss_level": bool(loss_level)}
+
+
+def _install_loss_level() -> None:
+    """Wrap ``get_loss_function`` (outside the e3 probe's wrapper): record the loss inputs and metrics of every
+    training micro batch and the per-token-row checksums of the gradient arriving at the logits."""
+    import torch
+    from miles.backends.training_utils import loss as loss_mod
+
+    orig = loss_mod.get_loss_function
+
+    def wrapped(*a, **k):
+        func = orig(*a, **k)
+
+        def recorded(args, batch, logits, sum_of_sample_mean, *rest, **kw):
+            mb = _ST["mb"]
+            small = _ST["small"].setdefault(mb, {})
+            for key in ("log_probs", "advantages", "loss_masks", "response_lengths", "total_lengths", "rewards"):
+                v = batch.get(key) if isinstance(batch, dict) else None
+                if v is None:
+                    continue
+                items = v if isinstance(v, (list, tuple)) else [v]
+                small[key] = [x.detach().to("cpu", copy=True) if hasattr(x, "detach") else x for x in items]
+            if torch.is_tensor(logits) and logits.requires_grad:
+                _put(f"{mb}|<logits>|fwd|0", logits)
+                small["logits_row_bits"] = _row_bits(logits)
+
+                def on_logit_grad(g, mb=mb):
+                    gg = _unscale("|bwd_", g)
+                    _ST["small"].setdefault(mb, {})["logit_grad_row_bits"] = _row_bits(gg)
+                    _ST["small"][mb]["logit_grad_row_abs"] = gg.double().abs().sum(-1).reshape(-1).cpu()
+                    if mb in _ST["logit_grad_mb"]:
+                        _ST["big"][f"{mb}|logit_grad"] = gg.detach().to("cpu", copy=True)
+                logits.register_hook(on_logit_grad)
+            loss, log = func(args, batch, logits, sum_of_sample_mean, *rest, **kw)
+            small["loss_metrics"] = {str(n): float(v.detach().float().cpu()) if hasattr(v, "detach") else float(v)
+                                     for n, v in (log.items() if isinstance(log, dict) else ())}
+            small["loss"] = float(loss.detach().float().cpu())
+            return loss, log
+        return recorded
+
+    loss_mod.get_loss_function = wrapped
+    _ST["loss_orig"] = orig
+    _ST["loss_mod"] = loss_mod
+
+
+def _row_bits(t: Any) -> Any:
+    """[rows] int64 checksum of the raw bits of every row of the last dim (+ rows' L1)."""
+    import torch
+
+    x = t.detach().reshape(-1, t.shape[-1]).contiguous()
+    v = x.view(torch.int32).to(torch.int64) if x.dtype == torch.float32 else x.view(torch.int16).to(torch.int64)
+    w = (torch.arange(v.shape[-1], device=v.device, dtype=torch.int64) % 1000003) + 1
+    return torch.stack([v.sum(-1), (v * w).sum(-1)]).cpu()
 
 
 def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = None, save: bool = True,
@@ -171,7 +243,10 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
         _ST["records"].clear()
         _ST["tensors"].clear()
         _ST["wgrad"].clear()
+        _ST["small"].clear()
+        _ST["big"].clear()
         _ST["mb"] = -1
+        _ST["fo"] = -1
         return {"saved": False}
 
     if coord is None:
@@ -181,7 +256,7 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     rec = _flush()
     payload = {"coord": dict(coord), "records": rec, "tensors": dict(_ST["tensors"]) if heavy else {},
                "wgrad": dict(_ST["wgrad"]) if heavy else {}, "bwd_scale": _ST.get("bwd_scale", 1.0),
-               "kernels": _ST.get("kernels"),
+               "kernels": _ST.get("kernels"), "small": dict(_ST.get("small", {})), "big": dict(_ST.get("big", {})) if heavy else {},
                "device": _device_info(),
                "n_microbatches": _ST["mb"] + 1, "env": {k: os.environ.get(k) for k in (
                    "CUBLAS_WORKSPACE_CONFIG", "NCCL_ALGO", "NVTE_ALLOW_NONDETERMINISTIC_ALGO",
@@ -191,7 +266,10 @@ def dump_trace(actor: Any, *, directory: str, tag: str, coord: dict | None = Non
     torch.save(payload, path)
     _ST["tensors"].clear()
     _ST["wgrad"].clear()
+    _ST["small"].clear()
+    _ST["big"].clear()
     _ST["mb"] = -1
+    _ST["fo"] = -1
     _ST["kernels"] = None if _ST.get("profile") else _ST.get("kernels")
     return {"path": path, "records": len(rec), "microbatches": payload["n_microbatches"], "coord": dict(coord)}
 
@@ -231,7 +309,8 @@ def _device_info() -> dict[str, Any]:
                                 bool(getattr(torch.backends.cuda.matmul, "allow_bf16_reduced_precision_reduction", None))}
     if torch.cuda.is_available():
         props = torch.cuda.get_device_properties(torch.cuda.current_device())
-        info.update({"gpu": props.name, "sm_count": props.multi_processor_count,
+        info.update({"gpu": props.name, "uuid": str(getattr(props, "uuid", "?")), "device_index": torch.cuda.current_device(),
+                     "sm_count": props.multi_processor_count,
                      "capability": list(torch.cuda.get_device_capability())})
     for mod in ("transformer_engine", "flash_attn", "megatron.core", "flashinfer"):
         try:
@@ -250,6 +329,8 @@ def _device_info() -> dict[str, Any]:
 
 
 def reset_for_tests() -> None:
+    if _ST.get("loss_mod") is not None:
+        _ST["loss_mod"].get_loss_function = _ST["loss_orig"]
     for h in _ST.get("handles", []):
         h.remove()
     _ST.clear()

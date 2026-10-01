@@ -44,6 +44,9 @@ PROFILES = {
     # the same arms on the A8 card (plan.md §3): A10G did not reproduce the A8 G4 difference
     "a8rc-h100": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 3600, "deterministic": True,
                   "arms": ("rcA1", "rcA2", "rcBc", "rcSa", "rcSb", "rcDd"), "arm_deadline_s": 2700},
+    # RC-3: only the deciding pair with the deep probe, then the restore arms after swapping the GPU order for Ray
+    "a8rc-h100b": {"gpu": "H100!:2", "expect": ("NVIDIA H100 80GB HBM3",), "timeout": 2700, "deterministic": True,
+                   "arms": ("dA1", "dBc", "dSaX", "dSbX"), "arm_deadline_s": 1800, "swap_gpus_before": "dSaX"},
 }
 # plan-v3 §0 profile: every dropout 0 (Megatron defaults hidden/attention to 0.1); A8 adds deterministic mode.
 # Profile overrides applied after parse (recorded in miles_args.*.json). --balance-data is NOT
@@ -53,9 +56,9 @@ PROFILES = {
 # Megatron hidden/attention dropout have no yeto flag (default 0.1): set to 0 here.
 OVERRIDES = {"dev-gather": ["hidden_dropout=0.0", "attention_dropout=0.0"]}
 OVERRIDES["a8"] = list(OVERRIDES["dev-gather"])
-OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = list(OVERRIDES["dev-gather"])
+OVERRIDES["a8rc"] = OVERRIDES["a8rc-h100"] = OVERRIDES["a8rc-h100b"] = list(OVERRIDES["dev-gather"])
 REQUIRED_ARGV = {"dev-gather": (), "a8": ("--deterministic-mode",), "a8rc": ("--deterministic-mode",),
-                 "a8rc-h100": ("--deterministic-mode",)}
+                 "a8rc-h100": ("--deterministic-mode",), "a8rc-h100b": ("--deterministic-mode",)}
 DETERMINISM_ENV = {"NCCL_ALGO": "Ring", "CUBLAS_WORKSPACE_CONFIG": ":4096:8", "NVIDIA_TF32_OVERRIDE": "0",
                    "NVTE_ALLOW_NONDETERMINISTIC_ALGO": "0"}  # = entry.DETERMINISM_ENV (checked by a test)
 
@@ -141,8 +144,20 @@ def container_script(profile: str, *, work: str = "/work/e3", flags_file: str = 
         'run_phase gen "--phase gen"',
     ]
     if "arm_deadline_s" in p:  # no new arm after this many seconds, so that pack/pull fit in the hard timeout
-        lines += [f'if [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
-                  f'else run_phase {arm} "--phase arm --arm {arm}"; fi' for arm in p["arms"]]
+        for arm in p["arms"]:
+            if p.get("swap_gpus_before") == arm:
+                # Ray hands out GPUs in the order of CUDA_VISIBLE_DEVICES: restart the raylet with the order swapped
+                # so that trainer rank 0 runs on the physical GPU that rank 1 used before (and DP1 on GPU 1).
+                lines += [
+                    'progress "swap GPU order for Ray (CUDA_VISIBLE_DEVICES=1,0)"',
+                    "ray stop --force > /dev/null 2>&1; sleep 5",
+                    "export CUDA_VISIBLE_DEVICES=1,0",
+                    "ray start --head --port=6379 --num-gpus=2 --disable-usage-stats > /dev/null || exit 9",
+                    f"nvidia-smi -L | tee {work}/gpus_swapped.txt",
+                    f'python /yeto/tools/probes/e3_reshard/gpu_map.py | tee -a {work}/gpus_swapped.txt',
+                ]
+            lines += [f'if [ $(( $(date +%s) - T0 )) -gt {p["arm_deadline_s"]} ]; then progress "skip {arm}: deadline"; '
+                      f'else run_phase {arm} "--phase arm --arm {arm}"; fi']
     else:
         lines += [f'run_phase {arm} "--phase arm --arm {arm}"' for arm in p.get("arms", ARMS)]
     if "arms" not in p:  # a8rc*: the analysis is offline (compare_rc.py on the retrieved packed files)

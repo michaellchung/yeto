@@ -131,3 +131,47 @@ def test_kernel_profile_never_breaks_the_step(tmp_path):
     payload = torch.load(Path(info["path"]), weights_only=False)
     assert payload["n_microbatches"] == 3 and isinstance(payload["kernels"], dict)  # kernels, or {"__error__": ...} on CPU
     assert "env" in payload["device"] and "transformer_engine" in payload["device"]
+
+
+def test_forward_only_pass_and_loss_level_capture(tmp_path, monkeypatch):
+    import types
+
+    fake_pkg = {}
+    for name in ("miles", "miles.backends", "miles.backends.training_utils"):
+        fake_pkg[name] = types.ModuleType(name)
+    loss_mod = types.ModuleType("miles.backends.training_utils.loss")
+
+    def get_loss_function(*a, **k):
+        def func(args, batch, logits, sum_of_sample_mean, *rest, **kw):
+            loss = logits.float().pow(2).sum() * batch["advantages"][0]
+            return loss, {"pg_loss": loss.detach(), "ppo_kl": torch.zeros(())}
+        return func
+
+    loss_mod.get_loss_function = get_loss_function
+    fake_pkg["miles.backends.training_utils.loss"] = loss_mod
+    fake_pkg["miles.backends.training_utils"].loss = loss_mod
+    for k, v in fake_pkg.items():
+        monkeypatch.setitem(sys.modules, k, v)
+
+    rc_trace.reset_for_tests()
+    torch.manual_seed(0)
+    net = Net().to(torch.bfloat16)
+    rc_trace.install_trace(SimpleNamespace(model=[net]), forward_only=True, loss_level=True, logit_grad_mb=(-1,),
+                           bwd_scale=0.5, name_filter=r"layers\.\d+$", fo_filter=r"layers\.\d+$")
+    with torch.no_grad():
+        net(torch.ones(2, 8, dtype=torch.bfloat16))  # old-policy log-prob pass
+    x = torch.ones(4, 8, dtype=torch.bfloat16, requires_grad=True)
+    logits = net.layers[0](x * 1.0)
+    func = loss_mod.get_loss_function()
+    loss, log = func(None, {"advantages": [torch.tensor(2.0)], "log_probs": [torch.zeros(3)]}, logits, None)
+    loss.backward()
+    info = rc_trace.dump_trace(SimpleNamespace(), directory=str(tmp_path), tag="t", coord={"dp": 0})
+    payload = torch.load(Path(info["path"]), weights_only=False)
+    assert any(k.startswith("fo0|") and "|<root-input>|in|" in k for k in payload["records"])
+    assert any(k.startswith("fo0|c0.layers.2|fwd") for k in payload["records"])
+    assert not any(k.startswith("0|") and "layers.2|fwd" in k for k in payload["records"])  # the training mb not run via root
+    # loss-level capture is keyed by the (so far -1) training mb counter; here only check the wrapper ran
+    small = payload["small"]
+    assert small and any("loss_metrics" in v and "pg_loss" in v["loss_metrics"] for v in small.values())
+    assert any("logit_grad_row_bits" in v for v in small.values())
+    assert payload["big"] and next(iter(payload["big"].values())).shape == logits.shape

@@ -39,6 +39,7 @@ class ArmSpec:
     standard: bool = False  # same-shape restore through ``restore_cut`` (E2 path), not the resharded loader
     trace: bool = False  # install rc_trace (a8-rootcause) and dump it after each trained step
     trace_steps: tuple = ()  # steps whose trace is kept; the last step always is. Earlier ones: records only
+    deep: bool = False  # also record the forward-only (old log-prob) pass, loss inputs/metrics, logits-gradient rows
 
 
 # plan-v3 §2.1, in order.
@@ -60,7 +61,15 @@ RC_ARMS = (
     # from scratch, no restore anywhere (A8's A1/A2 pair); traces of steps 1-2 are records only (no tensors)
     ArmSpec("rcA2", dp=2, cut_at_step2="C2", last_step=3, trace=True, trace_steps=(1, 2)),
 )
-ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS}
+# a8-rootcause RC-3 (plan.md section 5): the pair that decides G4 (continuous DP1 / resharded DP2) with the deeper
+# probe, then the same restore arms again after the container swapped the physical GPU order for Ray.
+DEEP_ARMS = (
+    ArmSpec("dA1", dp=1, cut_at_step2="C1", last_step=3, trace=True, trace_steps=(1, 2), deep=True),
+    ArmSpec("dBc", dp=2, restore="C1", restore_source_dp=1, save_after_restore="C1p", last_step=3, trace=True, deep=True),
+    ArmSpec("dSaX", dp=1, restore="C1", restore_source_dp=1, standard=True, last_step=3, trace=True, deep=True),
+    ArmSpec("dSbX", dp=2, restore="C1p", restore_source_dp=2, standard=True, last_step=3, trace=True, deep=True),
+)
+ARM_BY_NAME = {a.name: a for a in ARMS + RC_ARMS + DEEP_ARMS}
 KERNEL_PROFILE_ARMS = ("rcSa", "rcSb")  # kernel names of micro batch 0 (torch profiler), the pair that decides G4
 TRACE_INSTALL = "rc_trace.install_trace"
 TRACE_DUMP = "rc_trace.dump_trace"
@@ -165,7 +174,10 @@ def run_arm(spec: ArmSpec, backend: Backend, work: Path) -> Path:
         ev.event("probe_installed", ranks=backend.plugin(INSTALL_PROBE))
         _probe(backend, ev, "start")
         if spec.trace:
-            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {"bwd_scale": 1.0 / spec.dp, "profile_kernels": spec.name in KERNEL_PROFILE_ARMS}))
+            ev.event("trace_installed", ranks=backend.plugin(TRACE_INSTALL, {
+                "bwd_scale": 1.0 / spec.dp, "profile_kernels": spec.name in KERNEL_PROFILE_ARMS,
+                **({"forward_only": True, "loss_level": True,
+                    "logit_grad_mb": [9] if spec.dp == 1 else [4]} if spec.deep else {})}))
         step = 0
         if spec.restore and spec.standard:
             if spec.restore_source_dp != spec.dp:
